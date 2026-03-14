@@ -243,7 +243,7 @@ export function LoginForm({
                     "size-2 rounded-full transition-colors",
                     stepIndex >= i
                       ? "bg-primary"
-                      : "bg-muted-foreground/25",
+                      : "bg-muted-foreground/50",
                   )}
                 />
               ))}
