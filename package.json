@@ -1,6 +1,6 @@
 {
   "name": "@cellarnode/auth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Shared OTP-based authentication — token store, API client, React UI components for CellarNode dashboards.",
   "license": "MIT",
   "type": "module",

@@ -235,15 +235,15 @@ export function LoginForm({
         <div className="flex flex-1 items-center justify-center py-12">
           <div className="w-full max-w-sm">
             {/* Step indicator dots */}
-            <div className="mb-8 flex items-center gap-2">
+            <div className="mb-8 flex items-center gap-2.5">
               {[0, 1].map((i) => (
                 <div
                   key={i}
                   className={clsx(
-                    "size-2 rounded-full transition-colors",
+                    "size-2.5 rounded-full transition-colors",
                     stepIndex >= i
                       ? "bg-primary"
-                      : "bg-muted-foreground/50",
+                      : "bg-border",
                   )}
                 />
               ))}
@@ -332,15 +332,15 @@ export function LoginForm({
                       pattern={REGEXP_ONLY_DIGITS}
                       autoFocus
                       data-invalid={!!error || undefined}
-                      containerClassName="w-full justify-center"
+                      containerClassName="w-full justify-center gap-3"
                     >
-                      <InputOTPGroup className="gap-2.5">
+                      <InputOTPGroup className="gap-2">
                         <InputOTPSlot index={0} />
                         <InputOTPSlot index={1} />
                         <InputOTPSlot index={2} />
                       </InputOTPGroup>
                       <InputOTPSeparator />
-                      <InputOTPGroup className="gap-2.5">
+                      <InputOTPGroup className="gap-2">
                         <InputOTPSlot index={3} />
                         <InputOTPSlot index={4} />
                         <InputOTPSlot index={5} />
@@ -393,23 +393,25 @@ export function LoginForm({
               )}
             </div>
 
-            {/* Footer */}
-            <p className="mt-8 text-center text-sm text-muted-foreground">
-              {showRegisterInFooter && onNavigateRegister ? (
-                <>
-                  Need an account?{" "}
-                  <button
-                    type="button"
-                    onClick={onNavigateRegister}
-                    className="text-primary transition-colors hover:text-primary/80"
-                  >
-                    Register here
-                  </button>
-                </>
-              ) : (
-                footerText
-              )}
-            </p>
+            {/* Footer — only on email step */}
+            {step === "email" && (
+              <p className="mt-8 text-center text-sm text-muted-foreground">
+                {showRegisterInFooter && onNavigateRegister ? (
+                  <>
+                    Need an account?{" "}
+                    <button
+                      type="button"
+                      onClick={onNavigateRegister}
+                      className="text-primary transition-colors hover:text-primary/80"
+                    >
+                      Register here
+                    </button>
+                  </>
+                ) : (
+                  footerText
+                )}
+              </p>
+            )}
           </div>
         </div>
       </div>
