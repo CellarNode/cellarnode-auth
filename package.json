@@ -1,0 +1,72 @@
+{
+  "name": "@cellarnode/auth",
+  "version": "0.1.0",
+  "description": "Shared OTP-based authentication — token store, API client, React UI components for CellarNode dashboards.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CellarNode/cellarnode-auth.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": ["dist"],
+  "keywords": ["cellarnode", "auth", "otp", "jwt", "react"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "check-exports": "npx publint && npx @arethetypeswrong/cli --pack .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0",
+    "lucide-react": ">=0.400.0",
+    "input-otp": ">=1.4.0",
+    "@react-three/fiber": ">=8.0.0",
+    "three": ">=0.160.0",
+    "tailwindcss": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "react-dom": { "optional": true },
+    "lucide-react": { "optional": true },
+    "input-otp": { "optional": true },
+    "@react-three/fiber": { "optional": true },
+    "three": { "optional": true },
+    "tailwindcss": { "optional": true }
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@types/react": "^19.0.0",
+    "@types/three": ">=0.160.0",
+    "@react-three/fiber": ">=8.0.0",
+    "three": ">=0.160.0",
+    "lucide-react": ">=0.400.0",
+    "input-otp": ">=1.4.0"
+  }
+}
