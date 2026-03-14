@@ -30,12 +30,18 @@ export interface LoginFormProps {
   authApi: AuthApi;
   authStore: AuthStore;
   onLoginSuccess: () => void;
-  onNavigateRegister: () => void;
+  onNavigateRegister?: () => void;
   logoSrc?: string;
   inviteMode?: boolean;
   initialEmail?: string;
   theme?: "light" | "dark";
   onResendSuccess?: () => void;
+  /** Static footer text. Defaults to "Need an account? Contact your CellarNode representative." */
+  footerText?: string;
+  /** When true, footer shows a clickable register link (uses onNavigateRegister). When false, shows static footerText. Default: false */
+  showRegisterInFooter?: boolean;
+  /** Optional "Back" button handler shown in top-right corner */
+  onBack?: () => void;
 }
 
 type Step = "email" | "otp";
@@ -61,6 +67,9 @@ export function LoginForm({
   initialEmail = "",
   theme = "light",
   onResendSuccess,
+  footerText = "Need an account? Contact your CellarNode representative.",
+  showRegisterInFooter = false,
+  onBack,
 }: LoginFormProps) {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState(initialEmail);
@@ -210,10 +219,15 @@ export function LoginForm({
             )}
             <span className="font-semibold text-foreground">{brandName}</span>
           </div>
-          {brandDescription && (
-            <span className="text-sm text-muted-foreground">
-              {brandDescription}
-            </span>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="size-3.5" />
+              Back
+            </button>
           )}
         </div>
 
@@ -381,14 +395,20 @@ export function LoginForm({
 
             {/* Footer */}
             <p className="mt-8 text-center text-sm text-muted-foreground">
-              Need an account?{" "}
-              <button
-                type="button"
-                onClick={onNavigateRegister}
-                className="text-primary transition-colors hover:text-primary/80"
-              >
-                Register here
-              </button>
+              {showRegisterInFooter && onNavigateRegister ? (
+                <>
+                  Need an account?{" "}
+                  <button
+                    type="button"
+                    onClick={onNavigateRegister}
+                    className="text-primary transition-colors hover:text-primary/80"
+                  >
+                    Register here
+                  </button>
+                </>
+              ) : (
+                footerText
+              )}
             </p>
           </div>
         </div>
