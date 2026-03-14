@@ -3,7 +3,7 @@
 import * as React from "react";
 import { OTPInput, OTPInputContext } from "input-otp";
 import { clsx } from "clsx";
-import { MinusIcon } from "lucide-react";
+import { Dot } from "lucide-react";
 
 export type InputOTPProps = React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string;
@@ -14,7 +14,7 @@ export function InputOTP({ containerClassName, ...props }: InputOTPProps) {
     <OTPInput
       data-slot="input-otp"
       containerClassName={clsx(
-        "flex items-center gap-2 has-disabled:opacity-50",
+        "flex items-center has-disabled:opacity-50",
         containerClassName,
       )}
       {...props}
@@ -24,12 +24,14 @@ export function InputOTP({ containerClassName, ...props }: InputOTPProps) {
 
 export function InputOTPGroup({
   className,
+  style,
   ...props
 }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="input-otp-group"
-      className={clsx("flex items-center", className)}
+      style={{ display: "flex", alignItems: "center", gap: "8px", ...style }}
+      className={className}
       {...props}
     />
   );
@@ -48,28 +50,109 @@ export function InputOTPSlot({
   return (
     <div
       data-slot="input-otp-slot"
-      data-active={isActive}
-      className={clsx(
-        "relative flex h-14 w-12 items-center justify-center rounded-lg border-2 border-border bg-background text-lg font-medium shadow-xs transition-all",
-        isActive && "z-10 ring-[3px] ring-ring/50 border-primary",
-        className,
-      )}
+      data-active={isActive || undefined}
+      data-filled={!!char || undefined}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "52px",
+        height: "60px",
+        borderRadius: "12px",
+        fontSize: "24px",
+        fontWeight: 600,
+        lineHeight: 1,
+        transition: "all 150ms ease",
+        border: isActive
+          ? "2px solid var(--primary, #2d6a5e)"
+          : char
+            ? "2px solid var(--border, #d1d5db)"
+            : "2px solid var(--border, #d1d5db)",
+        background: char
+          ? "var(--accent, #f1f5f9)"
+          : "var(--background, #ffffff)",
+        color: "var(--foreground, #0f172a)",
+        boxShadow: isActive
+          ? "0 0 0 3px color-mix(in oklab, var(--primary, #2d6a5e) 20%, transparent), 0 1px 2px 0 rgba(0,0,0,0.05)"
+          : "0 1px 2px 0 rgba(0,0,0,0.05)",
+      }}
+      className={className}
       {...props}
     >
-      {char}
+      {char && (
+        <span style={{ animation: "fadeInSlot 150ms ease" }}>{char}</span>
+      )}
+      {!char && !hasFakeCaret && !isActive && (
+        <span
+          style={{
+            width: "8px",
+            height: "8px",
+            borderRadius: "50%",
+            background: "var(--muted-foreground, #94a3b8)",
+            opacity: 0.25,
+          }}
+        />
+      )}
       {hasFakeCaret && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="animate-caret-blink h-4 w-px bg-foreground duration-1000" />
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              width: "2px",
+              height: "24px",
+              borderRadius: "1px",
+              background: "var(--primary, #2d6a5e)",
+              animation: "caretBlink 1.1s ease infinite",
+            }}
+          />
         </div>
       )}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes caretBlink {
+              0%, 70% { opacity: 1; }
+              71%, 100% { opacity: 0; }
+            }
+            @keyframes fadeInSlot {
+              from { opacity: 0; transform: scale(0.8); }
+              to { opacity: 1; transform: scale(1); }
+            }
+          `,
+        }}
+      />
     </div>
   );
 }
 
-export function InputOTPSeparator(props: React.ComponentProps<"div">) {
+export function InputOTPSeparator({
+  style,
+  ...props
+}: React.ComponentProps<"div">) {
   return (
-    <div data-slot="input-otp-separator" role="separator" {...props}>
-      <MinusIcon className="size-4" />
+    <div
+      data-slot="input-otp-separator"
+      role="separator"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "16px",
+        color: "var(--muted-foreground, #94a3b8)",
+        ...style,
+      }}
+      {...props}
+    >
+      <Dot style={{ width: "24px", height: "24px" }} />
     </div>
   );
 }

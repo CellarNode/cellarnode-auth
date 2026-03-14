@@ -332,15 +332,15 @@ export function LoginForm({
                       pattern={REGEXP_ONLY_DIGITS}
                       autoFocus
                       data-invalid={!!error || undefined}
-                      containerClassName="w-full justify-center gap-3"
+                      containerClassName="justify-center"
                     >
-                      <InputOTPGroup className="gap-2">
+                      <InputOTPGroup>
                         <InputOTPSlot index={0} />
                         <InputOTPSlot index={1} />
                         <InputOTPSlot index={2} />
                       </InputOTPGroup>
                       <InputOTPSeparator />
-                      <InputOTPGroup className="gap-2">
+                      <InputOTPGroup>
                         <InputOTPSlot index={3} />
                         <InputOTPSlot index={4} />
                         <InputOTPSlot index={5} />
