@@ -6,6 +6,8 @@ export {
   type InputOTPProps,
 } from "./input-otp-slots.js";
 
+export { LoginForm, type LoginFormProps } from "./login-form.js";
+
 export { RegisterForm, type RegisterFormProps } from "./register-form.js";
 
 export {
