@@ -3,22 +3,54 @@
 import * as React from "react";
 import { OTPInput, OTPInputContext } from "input-otp";
 import { clsx } from "clsx";
-import { Dot } from "lucide-react";
+import { Minus } from "lucide-react";
 
 export type InputOTPProps = React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string;
 };
 
+const OTP_STYLES = `
+  @keyframes caretBlink {
+    0%, 70% { opacity: 1; }
+    71%, 100% { opacity: 0; }
+  }
+  @keyframes fadeInSlot {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  [data-slot="input-otp-group"] > [data-slot="input-otp-slot"] {
+    border-left-width: 0;
+  }
+  [data-slot="input-otp-group"] > [data-slot="input-otp-slot"]:first-child {
+    border-left-width: 2px;
+    border-top-left-radius: 12px;
+    border-bottom-left-radius: 12px;
+  }
+  [data-slot="input-otp-group"] > [data-slot="input-otp-slot"]:last-child {
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+  }
+  [data-slot="input-otp-slot"][data-active] {
+    border-radius: 12px !important;
+    border-left-width: 2px !important;
+    border-color: var(--primary, #2d6a5e) !important;
+    z-index: 10;
+  }
+`;
+
 export function InputOTP({ containerClassName, ...props }: InputOTPProps) {
   return (
-    <OTPInput
-      data-slot="input-otp"
-      containerClassName={clsx(
-        "flex items-center has-disabled:opacity-50",
-        containerClassName,
-      )}
-      {...props}
-    />
+    <>
+      <style dangerouslySetInnerHTML={{ __html: OTP_STYLES }} />
+      <OTPInput
+        data-slot="input-otp"
+        containerClassName={clsx(
+          "flex items-center has-disabled:opacity-50",
+          containerClassName,
+        )}
+        {...props}
+      />
+    </>
   );
 }
 
@@ -30,7 +62,7 @@ export function InputOTPGroup({
   return (
     <div
       data-slot="input-otp-group"
-      style={{ display: "flex", alignItems: "center", gap: "8px", ...style }}
+      style={{ display: "flex", alignItems: "center", ...style }}
       className={className}
       {...props}
     />
@@ -59,16 +91,11 @@ export function InputOTPSlot({
         justifyContent: "center",
         width: "52px",
         height: "60px",
-        borderRadius: "12px",
         fontSize: "24px",
         fontWeight: 600,
         lineHeight: 1,
         transition: "all 150ms ease",
-        border: isActive
-          ? "2px solid var(--primary, #2d6a5e)"
-          : char
-            ? "2px solid var(--border, #d1d5db)"
-            : "2px solid var(--border, #d1d5db)",
+        border: "2px solid var(--border, #d1d5db)",
         background: char
           ? "var(--accent, #f1f5f9)"
           : "var(--background, #ffffff)",
@@ -116,20 +143,6 @@ export function InputOTPSlot({
           />
         </div>
       )}
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-            @keyframes caretBlink {
-              0%, 70% { opacity: 1; }
-              71%, 100% { opacity: 0; }
-            }
-            @keyframes fadeInSlot {
-              from { opacity: 0; transform: scale(0.8); }
-              to { opacity: 1; transform: scale(1); }
-            }
-          `,
-        }}
-      />
     </div>
   );
 }
@@ -146,13 +159,13 @@ export function InputOTPSeparator({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "16px",
+        width: "24px",
         color: "var(--muted-foreground, #94a3b8)",
         ...style,
       }}
       {...props}
     >
-      <Dot style={{ width: "24px", height: "24px" }} />
+      <Minus style={{ width: "20px", height: "20px" }} />
     </div>
   );
 }
