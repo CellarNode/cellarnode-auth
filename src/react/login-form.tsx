@@ -55,9 +55,9 @@ export interface LoginFormProps {
 
 type Step = "email" | "otp";
 
-function formatCountdown(expiresAt: string | null) {
-  if (!expiresAt) return "15:00";
-  const diff = Math.max(0, new Date(expiresAt).getTime() - Date.now());
+function formatCountdown(target: string | null, fallback = "10:00") {
+  if (!target) return fallback;
+  const diff = Math.max(0, new Date(target).getTime() - Date.now());
   const minutes = String(Math.floor(diff / 60_000)).padStart(2, "0");
   const seconds = String(Math.floor((diff % 60_000) / 1000)).padStart(2, "0");
   return `${minutes}:${seconds}`;
@@ -96,7 +96,9 @@ export function LoginForm({
   const [isNotFound, setIsNotFound] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState("15:00");
+  const [resendAvailableAt, setResendAvailableAt] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState("10:00");
+  const [resendCountdown, setResendCountdown] = useState("01:00");
 
   useEffect(() => {
     if (!expiresAt) return;
@@ -109,8 +111,19 @@ export function LoginForm({
     return () => window.clearInterval(interval);
   }, [expiresAt]);
 
-  const canResend = expiresAt
-    ? new Date(expiresAt).getTime() <= Date.now()
+  useEffect(() => {
+    if (!resendAvailableAt) return;
+
+    setResendCountdown(formatCountdown(resendAvailableAt, "01:00"));
+    const interval = window.setInterval(() => {
+      setResendCountdown(formatCountdown(resendAvailableAt, "01:00"));
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [resendAvailableAt]);
+
+  const canResend = resendAvailableAt
+    ? new Date(resendAvailableAt).getTime() <= Date.now()
     : false;
   const stepIndex = step === "email" ? 0 : 1;
   const normalizedEmail = email.trim();
@@ -128,6 +141,7 @@ export function LoginForm({
       }
       if (err.code === "OTP_NOT_FOUND" || err.code === "OTP_MAX_ATTEMPTS") {
         setExpiresAt(new Date(0).toISOString());
+        setResendAvailableAt(new Date(0).toISOString());
       }
 
       // Route error to callback if provided
@@ -160,6 +174,7 @@ export function LoginForm({
     try {
       const response = await authApi.requestOtp(normalizedEmail);
       setExpiresAt(response.expiresAt);
+      setResendAvailableAt(response.resendAvailableAt);
       setStep("otp");
       setCode("");
     } catch (err) {
@@ -203,6 +218,7 @@ export function LoginForm({
     try {
       const response = await authApi.requestOtp(normalizedEmail);
       setExpiresAt(response.expiresAt);
+      setResendAvailableAt(response.resendAvailableAt);
       setCode("");
       onResendSuccess?.();
     } catch (err) {
@@ -412,7 +428,7 @@ export function LoginForm({
                       onClick={handleResend}
                       disabled={isSubmitting || !canResend}
                     >
-                      Resend code
+                      {canResend ? "Resend code" : `Resend in ${resendCountdown}`}
                     </button>
                   </div>
                 </form>

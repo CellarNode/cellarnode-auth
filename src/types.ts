@@ -18,6 +18,7 @@ export interface RegisterInput {
 
 export interface RequestOtpResponse {
   expiresAt: string;
+  resendAvailableAt: string;
 }
 
 export interface VerifyOtpResponse {
