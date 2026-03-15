@@ -3,6 +3,7 @@
 import React, { Suspense, useEffect, useState } from "react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -36,12 +37,20 @@ export interface LoginFormProps {
   initialEmail?: string;
   theme?: "light" | "dark";
   onResendSuccess?: () => void;
-  /** Static footer text. Defaults to "Need an account? Contact your CellarNode representative." */
+  /** Static footer text shown on the email step. Defaults to "Need an account? Contact your CellarNode representative." */
   footerText?: string;
   /** When true, footer shows a clickable register link (uses onNavigateRegister). When false, shows static footerText. Default: false */
   showRegisterInFooter?: boolean;
   /** Optional "Back" button handler shown in top-right corner */
   onBack?: () => void;
+  /** Error callback — receives structured error info for external handling (e.g. toast notifications). When provided, only a brief inline hint shows near the input; the full message goes through this callback. */
+  onError?: (error: {
+    code: string;
+    message: string;
+    remainingAttempts?: number;
+  }) => void;
+  /** Custom content shown below the input when the email is not found (USER_NOT_FOUND). Replaces the default "Create an account instead" link. Pass ReactNode for full control. */
+  notFoundContent?: React.ReactNode;
 }
 
 type Step = "email" | "otp";
@@ -54,10 +63,17 @@ function formatCountdown(expiresAt: string | null) {
   return `${minutes}:${seconds}`;
 }
 
+const ERROR_MESSAGES: Record<string, string> = {
+  USER_NOT_FOUND: "No account found with this email.",
+  OTP_RATE_LIMIT: "Too many code requests. Please wait before trying again.",
+  OTP_NOT_FOUND: "Code expired. Please request a new one.",
+  OTP_MAX_ATTEMPTS: "Too many failed attempts. Please request a new code.",
+  USER_DELETED: "This account has been deactivated. Contact support.",
+};
+
 export function LoginForm({
   userType,
   brandName,
-  brandDescription,
   authApi,
   authStore,
   onLoginSuccess,
@@ -70,12 +86,14 @@ export function LoginForm({
   footerText = "Need an account? Contact your CellarNode representative.",
   showRegisterInFooter = false,
   onBack,
+  onError,
+  notFoundContent,
 }: LoginFormProps) {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [showRegisterLink, setShowRegisterLink] = useState(false);
+  const [isNotFound, setIsNotFound] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [countdown, setCountdown] = useState("15:00");
@@ -99,49 +117,44 @@ export function LoginForm({
 
   function handleAuthError(err: unknown, fallbackMessage: string) {
     if (err instanceof AuthError) {
-      setShowRegisterLink(false);
-      switch (err.code) {
-        case "USER_NOT_FOUND":
-          setError("No account found with this email.");
-          setShowRegisterLink(true);
-          break;
-        case "OTP_RATE_LIMIT":
-          setError(
-            "Too many code requests. Please wait before trying again.",
-          );
-          break;
-        case "OTP_NOT_FOUND":
-          setError("Code expired. Please request a new one.");
-          setExpiresAt(new Date(0).toISOString());
-          break;
-        case "OTP_INVALID":
-          setError(
-            `Invalid code. ${err.remainingAttempts ?? 0} attempt(s) remaining.`,
-          );
-          break;
-        case "OTP_MAX_ATTEMPTS":
-          setError("Too many failed attempts. Please request a new code.");
-          setExpiresAt(new Date(0).toISOString());
-          break;
-        case "USER_DELETED":
-          setError(
-            "This account has been deactivated. Contact support.",
-          );
-          break;
-        default:
-          setError(err.message || "Something went wrong");
+      const msg =
+        err.code === "OTP_INVALID"
+          ? `Invalid code. ${err.remainingAttempts ?? 0} attempt(s) remaining.`
+          : ERROR_MESSAGES[err.code] ?? err.message ?? "Something went wrong";
+
+      // Side effects for specific error codes
+      if (err.code === "USER_NOT_FOUND") {
+        setIsNotFound(true);
+      }
+      if (err.code === "OTP_NOT_FOUND" || err.code === "OTP_MAX_ATTEMPTS") {
+        setExpiresAt(new Date(0).toISOString());
+      }
+
+      // Route error to callback if provided
+      if (onError) {
+        onError({
+          code: err.code,
+          message: msg,
+          remainingAttempts: err.remainingAttempts,
+        });
+        // Still show brief inline hint for context
+        setError(msg);
+      } else {
+        setError(msg);
       }
     } else {
-      setError(
-        err instanceof Error ? err.message : fallbackMessage,
-      );
+      const msg = err instanceof Error ? err.message : fallbackMessage;
+      if (onError) {
+        onError({ code: "UNKNOWN", message: msg });
+      }
+      setError(msg);
     }
   }
 
   async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setShowRegisterLink(false);
+    setIsNotFound(false);
     setIsSubmitting(true);
 
     try {
@@ -159,14 +172,16 @@ export function LoginForm({
   async function handleOtpSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setShowRegisterLink(false);
+    setIsNotFound(false);
     setIsSubmitting(true);
 
     try {
       const result = await authApi.verifyOtp(normalizedEmail, code);
 
       if (result.user.userType !== userType) {
-        setError(`This portal is for ${userType} accounts only.`);
+        const msg = `This portal is for ${userType} accounts only.`;
+        setError(msg);
+        if (onError) onError({ code: "USER_TYPE_MISMATCH", message: msg });
         authStore.clearAccessToken();
         return;
       }
@@ -182,7 +197,7 @@ export function LoginForm({
 
   async function handleResend() {
     setError("");
-    setShowRegisterLink(false);
+    setIsNotFound(false);
     setIsSubmitting(true);
 
     try {
@@ -241,9 +256,7 @@ export function LoginForm({
                   key={i}
                   className={clsx(
                     "size-2.5 rounded-full transition-colors",
-                    stepIndex >= i
-                      ? "bg-primary"
-                      : "bg-border",
+                    stepIndex >= i ? "bg-primary" : "bg-border",
                   )}
                 />
               ))}
@@ -286,19 +299,23 @@ export function LoginForm({
                       required
                       autoFocus
                       aria-invalid={!!error || undefined}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      className={clsx(
+                        "flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 transition-colors",
+                        error
+                          ? "border-destructive focus-visible:ring-destructive/30 focus-visible:border-destructive"
+                          : "border-input focus-visible:ring-ring/50 focus-visible:border-ring",
+                      )}
                     />
-                    {error && (
-                      <p className="text-sm text-destructive">{error}</p>
+                    {error && !onError && (
+                      <div className="flex items-start gap-2 text-sm text-destructive">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                        <span>{error}</span>
+                      </div>
                     )}
-                    {showRegisterLink && (
-                      <button
-                        type="button"
-                        onClick={onNavigateRegister}
-                        className="inline-flex items-center justify-center text-sm text-primary transition-colors hover:text-primary/80"
-                      >
-                        Create an account instead
-                      </button>
+                    {isNotFound && notFoundContent && (
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {notFoundContent}
+                      </div>
                     )}
                   </div>
 
@@ -329,8 +346,9 @@ export function LoginForm({
                       value={code}
                       onChange={(value) => setCode(value)}
                       onComplete={() => {
-                        // Auto-submit when all digits filled
-                        const form = document.getElementById("otp-form") as HTMLFormElement | null;
+                        const form = document.getElementById(
+                          "otp-form",
+                        ) as HTMLFormElement | null;
                         form?.requestSubmit();
                       }}
                       maxLength={6}
@@ -351,8 +369,11 @@ export function LoginForm({
                         <InputOTPSlot index={5} />
                       </InputOTPGroup>
                     </InputOTP>
-                    {error && (
-                      <p className="text-sm text-destructive">{error}</p>
+                    {error && !onError && (
+                      <div className="flex items-center justify-center gap-2 text-sm text-destructive">
+                        <AlertCircle className="size-4 shrink-0" />
+                        <span>{error}</span>
+                      </div>
                     )}
                   </div>
 
@@ -377,7 +398,7 @@ export function LoginForm({
                         setStep("email");
                         setCode("");
                         setError("");
-                        setShowRegisterLink(false);
+                        setIsNotFound(false);
                       }}
                     >
                       <span className="inline-flex items-center gap-1">
