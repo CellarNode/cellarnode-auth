@@ -31,10 +31,13 @@ const OTP_STYLES = `
     border-bottom-right-radius: 12px;
   }
   [data-slot="input-otp-slot"][data-active] {
-    border-radius: 12px !important;
     border-left-width: 2px !important;
+    margin-left: -2px;
     border-color: var(--primary, #2d6a5e) !important;
     z-index: 10;
+  }
+  [data-slot="input-otp-group"] > [data-slot="input-otp-slot"][data-active]:first-child {
+    margin-left: 0;
   }
 `;
 
