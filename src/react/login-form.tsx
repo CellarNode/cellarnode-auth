@@ -316,7 +316,7 @@ export function LoginForm({
                   </button>
                 </form>
               ) : (
-                <form onSubmit={handleOtpSubmit} className="grid gap-5">
+                <form id="otp-form" onSubmit={handleOtpSubmit} className="grid gap-5">
                   {/* Countdown badge */}
                   <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
                     <Clock3 className="size-3" />
@@ -328,6 +328,11 @@ export function LoginForm({
                       id="otp"
                       value={code}
                       onChange={(value) => setCode(value)}
+                      onComplete={() => {
+                        // Auto-submit when all digits filled
+                        const form = document.getElementById("otp-form") as HTMLFormElement | null;
+                        form?.requestSubmit();
+                      }}
                       maxLength={6}
                       pattern={REGEXP_ONLY_DIGITS}
                       autoFocus
