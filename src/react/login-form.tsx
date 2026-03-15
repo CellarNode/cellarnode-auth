@@ -37,8 +37,8 @@ export interface LoginFormProps {
   initialEmail?: string;
   theme?: "light" | "dark";
   onResendSuccess?: () => void;
-  /** Static footer text shown on the email step. Defaults to "Need an account? Contact your CellarNode representative." */
-  footerText?: string;
+  /** Footer content shown on the email step. Accepts string or ReactNode. Defaults to "Need an account? Contact your CellarNode representative." */
+  footerText?: React.ReactNode;
   /** When true, footer shows a clickable register link (uses onNavigateRegister). When false, shows static footerText. Default: false */
   showRegisterInFooter?: boolean;
   /** Optional "Back" button handler shown in top-right corner */
