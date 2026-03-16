@@ -48,6 +48,7 @@ export interface LoginFormProps {
     code: string;
     message: string;
     remainingAttempts?: number;
+    authenticatedUserType?: string;
   }) => void;
   /** Custom content shown below the input when the email is not found (USER_NOT_FOUND). Replaces the default "Create an account instead" link. Pass ReactNode for full control. */
   notFoundContent?: React.ReactNode;
@@ -196,7 +197,7 @@ export function LoginForm({
       if (result.user.userType !== userType) {
         const msg = `This portal is for ${userType} accounts only.`;
         setError(msg);
-        if (onError) onError({ code: "USER_TYPE_MISMATCH", message: msg });
+        if (onError) onError({ code: "USER_TYPE_MISMATCH", message: msg, authenticatedUserType: result.user.userType });
         authStore.clearAccessToken();
         return;
       }
