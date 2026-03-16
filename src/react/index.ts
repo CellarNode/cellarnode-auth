@@ -6,6 +6,7 @@ export {
   UnauthorizedPage,
   type UnauthorizedPageProps,
 } from "./unauthorized.js";
+export type { DashboardLink } from "../types.js";
 export { SquircleShift, type SquircleShiftProps } from "./squircle-shift.js";
 export {
   InputOTP,
