@@ -78,3 +78,9 @@ export interface AuthApi {
 }
 
 export type UserType = "importer" | "producer" | "admin";
+
+export interface DashboardLink {
+  userType: UserType;
+  label: string;
+  url: string;
+}

@@ -17,4 +17,5 @@ export {
   type VerifyOtpResponse,
   type AuthErrorResponse,
   type UserType,
+  type DashboardLink,
 } from "./types.js";
