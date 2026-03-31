@@ -100,6 +100,7 @@ export function LoginForm({
   const [resendAvailableAt, setResendAvailableAt] = useState<string | null>(null);
   const [countdown, setCountdown] = useState("10:00");
   const [resendCountdown, setResendCountdown] = useState("01:00");
+  const [isShaking, setIsShaking] = useState(false);
 
   useEffect(() => {
     if (!expiresAt) return;
@@ -206,6 +207,9 @@ export function LoginForm({
       onLoginSuccess();
     } catch (err) {
       handleAuthError(err, "Invalid code");
+      setCode("");
+      setIsShaking(true);
+      setTimeout(() => setIsShaking(false), 500);
     } finally {
       setIsSubmitting(false);
     }
@@ -352,16 +356,21 @@ export function LoginForm({
               ) : (
                 <form id="otp-form" onSubmit={handleOtpSubmit} className="grid gap-5">
                   {/* Countdown badge */}
-                  <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
-                    <Clock3 className="size-3" />
-                    Expires in {countdown}
+                  <div className="flex justify-center">
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
+                      <Clock3 className="size-3" />
+                      Expires in {countdown}
+                    </div>
                   </div>
 
                   <div className="grid gap-2">
                     <InputOTP
                       id="otp"
                       value={code}
-                      onChange={(value) => setCode(value)}
+                      onChange={(value) => {
+                        setCode(value);
+                        if (error) setError("");
+                      }}
                       onComplete={() => {
                         const form = document.getElementById(
                           "otp-form",
@@ -372,6 +381,7 @@ export function LoginForm({
                       pattern={REGEXP_ONLY_DIGITS}
                       autoFocus
                       data-invalid={!!error || undefined}
+                      data-shaking={isShaking || undefined}
                       containerClassName="justify-center"
                     >
                       <InputOTPGroup>
@@ -386,7 +396,7 @@ export function LoginForm({
                         <InputOTPSlot index={5} />
                       </InputOTPGroup>
                     </InputOTP>
-                    {error && !onError && (
+                    {error && (
                       <div className="flex items-center justify-center gap-2 text-sm text-destructive">
                         <AlertCircle className="size-4 shrink-0" />
                         <span>{error}</span>

@@ -18,6 +18,11 @@ const OTP_STYLES = `
     from { opacity: 0; transform: scale(0.8); }
     to { opacity: 1; transform: scale(1); }
   }
+  @keyframes otpShake {
+    0%, 100% { transform: translateX(0); }
+    15%, 45%, 75% { transform: translateX(-6px); }
+    30%, 60%, 90% { transform: translateX(6px); }
+  }
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"] {
     border-left-width: 0;
   }
@@ -38,6 +43,16 @@ const OTP_STYLES = `
   }
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"][data-active]:first-child {
     margin-left: 0;
+  }
+  [data-slot="input-otp"][data-invalid] [data-slot="input-otp-slot"] {
+    border-color: var(--destructive, #ef4444);
+  }
+  [data-slot="input-otp"][data-invalid] [data-slot="input-otp-slot"][data-active] {
+    border-color: var(--destructive, #ef4444) !important;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive, #ef4444) 20%, transparent), 0 1px 2px 0 rgba(0,0,0,0.05);
+  }
+  [data-slot="input-otp"][data-shaking] {
+    animation: otpShake 0.4s ease;
   }
 `;
 
