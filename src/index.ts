@@ -18,4 +18,9 @@ export {
   type AuthErrorResponse,
   type UserType,
   type DashboardLink,
+  type SessionClaims,
+  type SessionUserType,
+  type OrgChangeListener,
+  type AccessTokenSetListener,
+  type LogoutListener,
 } from "./types.js";

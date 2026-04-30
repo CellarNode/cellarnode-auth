@@ -51,12 +51,65 @@ export interface AuthStoreConfig {
   refreshBuffer?: number;
 }
 
+/**
+ * userType values carried in the V2 access-token JWT.
+ *
+ * Mirrors `SessionClaims["userType"]` in cellarnode-backend-v2
+ * (`src/middleware/auth.ts`). Kept as a distinct type from `UserType`
+ * because the session JWT may also carry `"distributor"` (reserved for
+ * future use) whereas the public-facing `UserType` enum currently only
+ * advertises importer/producer/admin to consumers.
+ */
+export type SessionUserType = "importer" | "producer" | "distributor" | "admin";
+
+/**
+ * Decoded claims from a V2 access-token JWT.
+ *
+ * Mirrors the backend `SessionClaims` shape in `cellarnode-backend-v2`
+ * (`src/middleware/auth.ts`) — copied locally so consumers do not need
+ * to import from the backend. Signature verification still happens
+ * server-side; the client-side decode is informational only.
+ */
+export interface SessionClaims {
+  userId: string;
+  email: string;
+  orgId: string | null;
+  roles: string[];
+  sessionId: string;
+  userType: SessionUserType;
+}
+
+export type OrgChangeListener = (orgId: string | null) => void;
+export type AccessTokenSetListener = (token: string | null) => void;
+export type LogoutListener = () => void;
+
 export interface AuthStore {
   getAccessToken(): string | null;
   hasAccessToken(): boolean;
   setAccessToken(token: string, expiresIn: number): void;
   clearAccessToken(): void;
   ensureAccessToken(forceRefresh?: boolean): Promise<string | null>;
+
+  /** Decoded session claims from the current access token, or null. */
+  getSessionClaims(): SessionClaims | null;
+
+  /** userId from the current access token, or null. */
+  getUserId(): string | null;
+
+  /** orgId from the current access token, or null. Admin returns null. */
+  getOrgId(): string | null;
+
+  /** userType from the current access token, or null. */
+  getUserType(): SessionUserType | null;
+
+  /** Subscribe to orgId change events. Returns unsubscribe. */
+  onOrgChange(listener: OrgChangeListener): () => void;
+
+  /** Subscribe to access-token (re-)set events. Fires after the token is set. Returns unsubscribe. */
+  onAccessTokenSet(listener: AccessTokenSetListener): () => void;
+
+  /** Subscribe to logout events. Returns unsubscribe. */
+  onLogout(listener: LogoutListener): () => void;
 }
 
 export interface AuthClientConfig {
