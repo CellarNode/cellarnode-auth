@@ -1,0 +1,33 @@
+src/types.ts
+  783f9b2b2a6c0552 54-85,92-112
+package.json
+  783f9b2b2a6c0552 3,26-35,45
+src/index.ts
+  783f9b2b2a6c0552 21-25
+__tests__/auth-store.test.ts
+  783f9b2b2a6c0552 2,5-25,143-351
+CHANGELOG.md
+  783f9b2b2a6c0552 1-13
+src/auth-store.ts
+  783f9b2b2a6c0552 1-10,13-71,76,80-114,123-151,160,168,173,188,193,198-200,211-246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "7ef8b96295ed74b3903260ed3aa866e3008217c6",
+  "prompts": {
+    "783f9b2b2a6c0552": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac76d2c7-d6e8-4169-81af-3648ff872a0e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "mjnong",
+      "messages": [],
+      "total_additions": 493,
+      "total_deletions": 17,
+      "accepted_lines": 484,
+      "overriden_lines": 1
+    }
+  }
+}
