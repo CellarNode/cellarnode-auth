@@ -1,5 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { SignJWT } from "jose";
 import { createAuthStore } from "../src/auth-store.js";
+
+/**
+ * Helper — sign an unverified HS256 JWT carrying SessionClaims. The
+ * client-side decoder does NOT verify the signature, so any secret will do.
+ */
+async function signClaims(claims: Record<string, unknown>): Promise<string> {
+  const secret = new TextEncoder().encode("test-secret-key-for-unit-tests-only");
+  return await new SignJWT(claims)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("15m")
+    .sign(secret);
+}
+
+const baseClaims = {
+  userId: "user_123",
+  email: "alice@example.com",
+  sessionId: "sess_abc",
+  roles: ["member"],
+  userType: "importer" as const,
+};
 
 describe("createAuthStore", () => {
   beforeEach(() => {
@@ -116,5 +138,214 @@ describe("createAuthStore", () => {
     // Advance past when refresh would have fired
     await vi.advanceTimersByTimeAsync(120_000);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("createAuthStore — session claim getters (v0.9.0)", () => {
+  // Real timers — JWT helper uses Date internally and we don't need fake
+  // timers for the claim accessors.
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns null for all getters when no token is set", () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    expect(store.getSessionClaims()).toBeNull();
+    expect(store.getUserId()).toBeNull();
+    expect(store.getOrgId()).toBeNull();
+    expect(store.getUserType()).toBeNull();
+  });
+
+  it("decodes claims from a valid JWT", async () => {
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken(token, 900);
+
+    const claims = store.getSessionClaims();
+    expect(claims).not.toBeNull();
+    expect(claims?.userId).toBe("user_123");
+    expect(claims?.email).toBe("alice@example.com");
+    expect(claims?.orgId).toBe("org_1");
+    expect(claims?.sessionId).toBe("sess_abc");
+    expect(claims?.roles).toEqual(["member"]);
+    expect(claims?.userType).toBe("importer");
+
+    expect(store.getUserId()).toBe("user_123");
+    expect(store.getOrgId()).toBe("org_1");
+    expect(store.getUserType()).toBe("importer");
+  });
+
+  it("returns null orgId for admin tokens (orgId=null in JWT)", async () => {
+    const token = await signClaims({ ...baseClaims, orgId: null, userType: "admin" });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken(token, 900);
+
+    expect(store.getOrgId()).toBeNull();
+    expect(store.getUserType()).toBe("admin");
+    expect(store.getSessionClaims()?.orgId).toBeNull();
+  });
+
+  it("malformed JWT → claims set to null, no extra listeners fire (orgId stays null)", () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const orgListener = vi.fn();
+    store.onOrgChange(orgListener);
+
+    // Garbage string is not a valid JWT — decoder returns null.
+    store.setAccessToken("not-a-jwt", 900);
+
+    expect(store.getSessionClaims()).toBeNull();
+    expect(store.getUserId()).toBeNull();
+    expect(store.getOrgId()).toBeNull();
+    // orgId transitioned null → null; onOrgChange must NOT fire (safer
+    // contract: malformed tokens do not synthesise spurious events).
+    expect(orgListener).not.toHaveBeenCalled();
+  });
+
+  it("malformed JWT after a valid one fires onOrgChange(null)", async () => {
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken(token, 900);
+
+    const orgListener = vi.fn();
+    store.onOrgChange(orgListener);
+
+    store.setAccessToken("not-a-jwt", 900);
+
+    // orgId went org_1 → null because claims could not be decoded.
+    expect(orgListener).toHaveBeenCalledTimes(1);
+    expect(orgListener).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("createAuthStore — event surface (v0.9.0)", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("onOrgChange fires once when token with new orgId is set from null", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const listener = vi.fn();
+    store.onOrgChange(listener);
+
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    store.setAccessToken(token, 900);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith("org_1");
+  });
+
+  it("onOrgChange does NOT fire when same orgId is re-set (refresh)", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const token1 = await signClaims({ ...baseClaims, orgId: "org_1" });
+    store.setAccessToken(token1, 900);
+
+    const listener = vi.fn();
+    store.onOrgChange(listener);
+
+    // Simulate a refresh — new JWT, same orgId.
+    const token2 = await signClaims({ ...baseClaims, orgId: "org_1", sessionId: "sess_def" });
+    store.setAccessToken(token2, 900);
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("onOrgChange fires with null when an admin token (orgId=null) is set", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const token1 = await signClaims({ ...baseClaims, orgId: "org_1" });
+    store.setAccessToken(token1, 900);
+
+    const listener = vi.fn();
+    store.onOrgChange(listener);
+
+    const adminToken = await signClaims({ ...baseClaims, orgId: null, userType: "admin" });
+    store.setAccessToken(adminToken, 900);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(null);
+  });
+
+  it("onAccessTokenSet fires every setAccessToken call (even with same orgId)", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const listener = vi.fn();
+    store.onAccessTokenSet(listener);
+
+    const token1 = await signClaims({ ...baseClaims, orgId: "org_1" });
+    const token2 = await signClaims({ ...baseClaims, orgId: "org_1", sessionId: "sess_def" });
+    store.setAccessToken(token1, 900);
+    store.setAccessToken(token2, 900);
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenNthCalledWith(1, token1);
+    expect(listener).toHaveBeenNthCalledWith(2, token2);
+  });
+
+  it("onLogout fires on clearAccessToken", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const listener = vi.fn();
+    store.onLogout(listener);
+
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    store.setAccessToken(token, 900);
+
+    expect(listener).not.toHaveBeenCalled();
+    store.clearAccessToken();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("multiple listeners receive the event (fan-out)", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const a = vi.fn();
+    const b = vi.fn();
+    const c = vi.fn();
+    store.onOrgChange(a);
+    store.onOrgChange(b);
+    store.onOrgChange(c);
+
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    store.setAccessToken(token, 900);
+
+    expect(a).toHaveBeenCalledWith("org_1");
+    expect(b).toHaveBeenCalledWith("org_1");
+    expect(c).toHaveBeenCalledWith("org_1");
+  });
+
+  it("unsubscribe stops receiving events", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const orgListener = vi.fn();
+    const tokenListener = vi.fn();
+    const logoutListener = vi.fn();
+
+    const offOrg = store.onOrgChange(orgListener);
+    const offToken = store.onAccessTokenSet(tokenListener);
+    const offLogout = store.onLogout(logoutListener);
+
+    offOrg();
+    offToken();
+    offLogout();
+
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    store.setAccessToken(token, 900);
+    store.clearAccessToken();
+
+    expect(orgListener).not.toHaveBeenCalled();
+    expect(tokenListener).not.toHaveBeenCalled();
+    expect(logoutListener).not.toHaveBeenCalled();
+  });
+
+  it("a throwing listener does not break event fan-out", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const bad = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const good = vi.fn();
+    store.onOrgChange(bad);
+    store.onOrgChange(good);
+
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    expect(() => store.setAccessToken(token, 900)).not.toThrow();
+
+    expect(bad).toHaveBeenCalledTimes(1);
+    expect(good).toHaveBeenCalledTimes(1);
+    expect(good).toHaveBeenCalledWith("org_1");
   });
 });
