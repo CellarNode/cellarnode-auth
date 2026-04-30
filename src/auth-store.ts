@@ -210,7 +210,11 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
     },
 
     getSessionClaims() {
-      return claims;
+      // Return a defensive copy so external callers cannot mutate the
+      // internal claims object (e.g. push to roles, reassign userType).
+      return claims
+        ? { ...claims, roles: [...claims.roles] }
+        : null;
     },
 
     getUserId() {

@@ -215,6 +215,27 @@ describe("createAuthStore — session claim getters (v0.9.0)", () => {
     expect(orgListener).toHaveBeenCalledTimes(1);
     expect(orgListener).toHaveBeenCalledWith(null);
   });
+
+  it("getSessionClaims returns a defensive copy — caller mutations cannot leak into internal state", async () => {
+    const token = await signClaims({ ...baseClaims, orgId: "org_1" });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken(token, 900);
+
+    const first = store.getSessionClaims();
+    expect(first).not.toBeNull();
+    // Mutate the returned object + nested roles array.
+    first!.userId = "tampered";
+    first!.roles.push("admin-injected");
+
+    // A subsequent read must reflect the original, untampered claims.
+    const second = store.getSessionClaims();
+    expect(second?.userId).toBe("user_123");
+    expect(second?.roles).toEqual(["member"]);
+
+    // Each call returns a distinct object (no shared reference).
+    expect(second).not.toBe(first);
+    expect(second?.roles).not.toBe(first!.roles);
+  });
 });
 
 describe("createAuthStore — event surface (v0.9.0)", () => {
