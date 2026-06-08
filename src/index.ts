@@ -1,7 +1,7 @@
 export { createAuthStore } from "./auth-store.js";
 export { createAuthClient } from "./auth-client.js";
 export { createAuthApi } from "./auth-api.js";
-export { validateUserType } from "./auth-guard.js";
+export { validateUserType, hasEntitlement } from "./auth-guard.js";
 export { extractAccessToken } from "./extract-token.js";
 
 export {

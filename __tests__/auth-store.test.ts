@@ -55,6 +55,43 @@ describe("createAuthStore", () => {
     expect(store.hasAccessToken()).toBe(false);
   });
 
+  it("decodes entitlements from the JWT (CEL-599)", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const token = await signClaims({ ...baseClaims, entitlements: ["producer-dashboard", "elabel"] });
+    store.setAccessToken(token, 900);
+    expect(store.getEntitlements()).toEqual(["producer-dashboard", "elabel"]);
+    expect(store.getSessionClaims()?.entitlements).toEqual(["producer-dashboard", "elabel"]);
+  });
+
+  it("defaults entitlements to [] for tokens that predate the claim", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const token = await signClaims(baseClaims); // no entitlements field
+    store.setAccessToken(token, 900);
+    expect(store.getEntitlements()).toEqual([]);
+    expect(store.getSessionClaims()?.entitlements).toEqual([]);
+  });
+
+  it("getEntitlements returns [] when logged out", () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    expect(store.getEntitlements()).toEqual([]);
+  });
+
+  it("getEntitlements returns a defensive copy", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const token = await signClaims({ ...baseClaims, entitlements: ["producer-dashboard"] });
+    store.setAccessToken(token, 900);
+    const ents = store.getEntitlements();
+    ents.push("hacked");
+    expect(store.getEntitlements()).toEqual(["producer-dashboard"]);
+  });
+
+  it("filters non-string entitlement elements from a malformed claim", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const token = await signClaims({ ...baseClaims, entitlements: ["producer-dashboard", 42, null, "elabel"] });
+    store.setAccessToken(token, 900);
+    expect(store.getEntitlements()).toEqual(["producer-dashboard", "elabel"]);
+  });
+
   it("schedules refresh before expiry", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
