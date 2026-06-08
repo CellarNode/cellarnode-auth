@@ -1,0 +1,19 @@
+__tests__/auth-store.test.ts
+  s_76d7ac48d6542c::t_359eb8a95b8f8d 88-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "bc3469de3b7dc26b55db6d5cb1b9036eeba2fdd9",
+  "prompts": {},
+  "sessions": {
+    "s_76d7ac48d6542c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a149e558-4b04-4919-b8a2-5887c06ea65b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
