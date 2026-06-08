@@ -40,6 +40,7 @@ function decodeSessionClaims(token: string): SessionClaims | null {
   const orgIdRaw = payload.orgId;
   const rolesRaw = payload.roles;
   const userTypeRaw = payload.userType;
+  const entitlementsRaw = payload.entitlements;
 
   if (typeof userId !== "string" || userId.length === 0) return null;
   if (typeof email !== "string") return null;
@@ -56,6 +57,11 @@ function decodeSessionClaims(token: string): SessionClaims | null {
     ? rolesRaw.filter((r): r is string => typeof r === "string")
     : [];
 
+  // CEL-599: tolerate tokens minted before entitlements existed (→ []).
+  const entitlements = Array.isArray(entitlementsRaw)
+    ? entitlementsRaw.filter((e): e is string => typeof e === "string")
+    : [];
+
   if (typeof userTypeRaw !== "string") return null;
   if (!VALID_USER_TYPES.has(userTypeRaw as SessionUserType)) return null;
 
@@ -66,6 +72,7 @@ function decodeSessionClaims(token: string): SessionClaims | null {
     roles,
     sessionId,
     userType: userTypeRaw as SessionUserType,
+    entitlements,
   };
 }
 
@@ -213,7 +220,7 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
       // Return a defensive copy so external callers cannot mutate the
       // internal claims object (e.g. push to roles, reassign userType).
       return claims
-        ? { ...claims, roles: [...claims.roles] }
+        ? { ...claims, roles: [...claims.roles], entitlements: [...claims.entitlements] }
         : null;
     },
 
@@ -227,6 +234,11 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
 
     getUserType() {
       return claims?.userType ?? null;
+    },
+
+    getEntitlements() {
+      // Defensive copy; [] when logged out (consistent with roles).
+      return claims ? [...claims.entitlements] : [];
     },
 
     onOrgChange(listener) {

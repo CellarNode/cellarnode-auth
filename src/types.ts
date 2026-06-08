@@ -6,6 +6,13 @@ export interface AuthUser {
   userType: "importer" | "producer" | "admin";
   orgId: string | null;
   roles: string[];
+  /**
+   * Per-user entitlements (CEL-599 / Epic A). Optional on the `/auth/me` wire
+   * shape: present once the backend's `/auth/me` mapper returns it, absent for
+   * older backends. Consumers should read it as `user.entitlements ?? []`, or
+   * prefer `authStore.getEntitlements()` (decoded from the JWT, always present).
+   */
+  entitlements?: string[];
   createdAt: string;
 }
 
@@ -77,6 +84,13 @@ export interface SessionClaims {
   roles: string[];
   sessionId: string;
   userType: SessionUserType;
+  /**
+   * Per-user entitlements carried in the JWT (CEL-599 / Epic A) — e.g.
+   * `"producer-dashboard"`, `"importer-dashboard"`, `"elabel"`. Always an array
+   * on the decoded claims (empty if the token predates entitlements or the user
+   * holds none); the backend mints them from the `user_entitlements` table.
+   */
+  entitlements: string[];
 }
 
 export type OrgChangeListener = (orgId: string | null) => void;
@@ -101,6 +115,13 @@ export interface AuthStore {
 
   /** userType from the current access token, or null. */
   getUserType(): SessionUserType | null;
+
+  /**
+   * Per-user entitlements from the current access token (CEL-599). Always an
+   * array — empty when logged out or when the token carries none. Decoded from
+   * the JWT, so it reflects the freshest minted token.
+   */
+  getEntitlements(): string[];
 
   /** Subscribe to orgId change events. Returns unsubscribe. */
   onOrgChange(listener: OrgChangeListener): () => void;
