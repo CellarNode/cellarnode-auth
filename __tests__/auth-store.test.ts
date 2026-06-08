@@ -85,6 +85,13 @@ describe("createAuthStore", () => {
     expect(store.getEntitlements()).toEqual(["producer-dashboard"]);
   });
 
+  it("filters non-string entitlement elements from a malformed claim", async () => {
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const token = await signClaims({ ...baseClaims, entitlements: ["producer-dashboard", 42, null, "elabel"] });
+    store.setAccessToken(token, 900);
+    expect(store.getEntitlements()).toEqual(["producer-dashboard", "elabel"]);
+  });
+
   it("schedules refresh before expiry", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
