@@ -1,0 +1,36 @@
+src/auth-guard.ts
+  s_76d7ac48d6542c::t_106dbaabdf3de5 1,6-19
+src/index.ts
+  s_76d7ac48d6542c::t_9d50cae0086d37 4
+__tests__/auth-guard.test.ts
+  s_76d7ac48d6542c::t_387c08ccb62f22 2-3
+  s_76d7ac48d6542c::t_be78073f91f257 28-61
+src/auth-store.ts
+  s_76d7ac48d6542c::t_20333aeb5988c0 60-64,75
+  s_76d7ac48d6542c::t_504dd86448eb54 223,239-241
+  s_76d7ac48d6542c::t_e7ea01d235ffee 43
+package.json
+  s_76d7ac48d6542c::t_08b307474b19a3 3
+src/types.ts
+  s_76d7ac48d6542c::t_58db27b7b458a7 119-125
+  s_76d7ac48d6542c::t_c2623a6d88da39 87-93
+  s_76d7ac48d6542c::t_13db41e1410280 9-15
+__tests__/auth-store.test.ts
+  s_76d7ac48d6542c::t_69aef9c3c56eeb 58-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "dfd70f2a63b4987ee9ffe795cfff2f1e8625840d",
+  "prompts": {},
+  "sessions": {
+    "s_76d7ac48d6542c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a149e558-4b04-4919-b8a2-5887c06ea65b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
