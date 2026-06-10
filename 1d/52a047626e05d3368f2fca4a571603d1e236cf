@@ -1,0 +1,25 @@
+src/auth-store.ts
+  s_6bb72e6910b54b::t_074c4c5ba17004 176-180
+  s_6bb72e6910b54b::t_2e4161cd14057a 197-204
+  s_6bb72e6910b54b::t_9e3b5930f57ff7 57-62,64
+  s_6bb72e6910b54b::t_b78eb6fe928509 222
+__tests__/auth-store.test.ts
+  s_6bb72e6910b54b::t_20c18575339859 412-426
+  s_6bb72e6910b54b::t_aa76f76cc45692 301-329
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "1d52a047626e05d3368f2fca4a571603d1e236cf",
+  "prompts": {},
+  "sessions": {
+    "s_6bb72e6910b54b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9c53d6d-45a1-4e57-ac54-469a4ecceedc",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
