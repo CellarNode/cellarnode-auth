@@ -104,22 +104,25 @@ export interface AuthStore {
   clearAccessToken(): void;
   ensureAccessToken(forceRefresh?: boolean): Promise<string | null>;
 
-  /** Decoded session claims from the current access token, or null. */
-  getSessionClaims(): SessionClaims | null;
-
-  /** userId from the current access token, or null. */
+  /**
+   * userId of the current session, or null.
+   *
+   * CEL-622 — sourced from `GET /auth/me` (the public access token is an opaque
+   * encrypted JWE and cannot be decoded client-side). Resolves asynchronously
+   * after a token is set/refreshed; reads null until `/auth/me` settles.
+   */
   getUserId(): string | null;
 
-  /** orgId from the current access token, or null. Admin returns null. */
+  /** orgId of the current session, or null. Admin returns null. Sourced from `/auth/me`. */
   getOrgId(): string | null;
 
-  /** userType from the current access token, or null. */
+  /** userType of the current session, or null. Sourced from `/auth/me`. */
   getUserType(): SessionUserType | null;
 
   /**
-   * Per-user entitlements from the current access token (CEL-599). Always an
-   * array — empty when logged out or when the token carries none. Decoded from
-   * the JWT, so it reflects the freshest minted token.
+   * Per-user entitlements for the current session (CEL-599). Always an array —
+   * empty when logged out or when `/auth/me` carries none. Sourced from
+   * `/auth/me` (CEL-622), so it reflects the authoritative server-side state.
    */
   getEntitlements(): string[];
 

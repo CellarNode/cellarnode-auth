@@ -1,77 +1,46 @@
-import { decodeJwt } from "jose";
 import type {
   AccessTokenSetListener,
   AuthStore,
   AuthStoreConfig,
+  AuthUser,
   LogoutListener,
   OrgChangeListener,
-  SessionClaims,
   SessionUserType,
 } from "./types.js";
 import { extractAccessToken } from "./extract-token.js";
 
-const VALID_USER_TYPES: ReadonlySet<SessionUserType> = new Set([
-  "importer",
-  "producer",
-  "distributor",
-  "admin",
-]);
+/**
+ * Minimal identity shape cached by the auth-store, sourced from `GET /auth/me`.
+ *
+ * CEL-622 — the public access token is an opaque, ENCRYPTED JWE (jose
+ * `EncryptJWT`, alg `dir` / `A256GCM`). It is NOT client-decodable, so the
+ * store can no longer derive identity from the token. Instead, every time a
+ * token is acquired or changed, the store fetches `/auth/me` (the authoritative,
+ * decryptable endpoint that — post-CEL-630 — returns orgId, userId, userType
+ * AND entitlements) with the bearer token and caches the result here.
+ */
+interface Identity {
+  userId: string;
+  orgId: string | null;
+  userType: SessionUserType;
+  entitlements: string[];
+}
 
 /**
- * Decode a JWT payload into SessionClaims.
+ * Map a `/auth/me` AuthUser onto the minimal cached identity.
  *
- * Returns null on any decode failure or if required fields are missing /
- * mistyped. Signature verification is intentionally NOT performed — that
- * is the backend's job at the next authenticated request. This decode is
- * informational only (used for clientId / orgId / userType lookups in the
- * UI layer).
+ * `AuthUser.id` is the userId. `entitlements` is optional on the wire (older
+ * backends omit it) → defaults to `[]`. The element filter guards against a
+ * malformed array carrying non-string entries.
  */
-function decodeSessionClaims(token: string): SessionClaims | null {
-  let payload: Record<string, unknown>;
-  try {
-    payload = decodeJwt(token) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-
-  const userId = payload.userId;
-  const email = payload.email;
-  const sessionId = payload.sessionId;
-  const orgIdRaw = payload.orgId;
-  const rolesRaw = payload.roles;
-  const userTypeRaw = payload.userType;
-  const entitlementsRaw = payload.entitlements;
-
-  if (typeof userId !== "string" || userId.length === 0) return null;
-  if (typeof email !== "string") return null;
-  if (typeof sessionId !== "string" || sessionId.length === 0) return null;
-
-  const orgId =
-    orgIdRaw === null || orgIdRaw === undefined
-      ? null
-      : typeof orgIdRaw === "string"
-        ? orgIdRaw
-        : null;
-
-  const roles = Array.isArray(rolesRaw)
-    ? rolesRaw.filter((r): r is string => typeof r === "string")
+function toIdentity(user: AuthUser): Identity {
+  const entitlements = Array.isArray(user.entitlements)
+    ? user.entitlements.filter((e): e is string => typeof e === "string")
     : [];
-
-  // CEL-599: tolerate tokens minted before entitlements existed (→ []).
-  const entitlements = Array.isArray(entitlementsRaw)
-    ? entitlementsRaw.filter((e): e is string => typeof e === "string")
-    : [];
-
-  if (typeof userTypeRaw !== "string") return null;
-  if (!VALID_USER_TYPES.has(userTypeRaw as SessionUserType)) return null;
-
   return {
-    userId,
-    email,
-    orgId,
-    roles,
-    sessionId,
-    userType: userTypeRaw as SessionUserType,
+    userId: user.id,
+    orgId: user.orgId ?? null,
+    userType: user.userType,
     entitlements,
   };
 }
@@ -80,9 +49,20 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
   const { baseUrl, refreshPath = "/auth/refresh", refreshBuffer = 60 } = config;
 
   let accessToken: string | null = null;
-  let claims: SessionClaims | null = null;
+  let identity: Identity | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let refreshPromise: Promise<string | null> | null = null;
+
+  // Tracks the orgId observed at the last emitted state so `onOrgChange` only
+  // fires on an actual transition. Reset to null on logout so a subsequent
+  // login re-fires `onOrgChange` even for the same org.
+  let previousOrgId: string | null = null;
+
+  // Monotonic generation counter. Bumped on every token change (set / clear /
+  // refresh). An in-flight `/auth/me` resolution only commits if its captured
+  // generation still matches — this discards stale identity results when the
+  // token changed again before the previous fetch resolved.
+  let tokenGeneration = 0;
 
   const orgChangeListeners = new Set<OrgChangeListener>();
   const accessTokenSetListeners = new Set<AccessTokenSetListener>();
@@ -128,32 +108,104 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
   }
 
   /**
-   * Apply a new access-token value to internal state.
+   * Fetch `/auth/me` with the bearer token and return the parsed identity, or
+   * null on any failure (network error, non-2xx, malformed body).
    *
-   * - Decodes the JWT via `jose.decodeJwt` (no signature verify).
-   * - Caches the decoded claims.
-   * - Fires `onOrgChange` listeners ONLY when `orgId` actually changes
-   *   (no-op on a same-orgId refresh).
-   * - Always fires `onAccessTokenSet` listeners after the token + claims
-   *   are committed.
-   *
-   * Malformed JWTs are tolerated: claims become `null` and `onOrgChange`
-   * fires with `null` only if the previous orgId was non-null (i.e. the
-   * effective orgId transitioned).
+   * Tolerant by design — mirrors how `performRefresh` swallows errors. A failed
+   * `/auth/me` must NOT throw out of `setAccessToken` / `performRefresh`; the
+   * caller treats null identity as "logged in but identity unknown" and the
+   * getters fall back to null/[].
    */
-  function applyToken(token: string | null): void {
-    const previousOrgId = claims?.orgId ?? null;
+  async function fetchIdentity(token: string): Promise<Identity | null> {
+    try {
+      const res = await fetch(`${baseUrl}/auth/me`, {
+        method: "GET",
+        credentials: "include",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      const user = (await res.json()) as AuthUser;
+      if (!user || typeof user.id !== "string" || user.id.length === 0) {
+        return null;
+      }
+      return toIdentity(user);
+    } catch {
+      return null;
+    }
+  }
 
-    accessToken = token;
-    claims = token ? decodeSessionClaims(token) : null;
-
-    const nextOrgId = claims?.orgId ?? null;
-
-    if (nextOrgId !== previousOrgId) {
-      emitOrgChange(nextOrgId);
+  /**
+   * Commit a freshly-resolved identity and emit the dependent events.
+   *
+   * EVENT ORDERING (CRITICAL — consumer realtime hooks depend on it):
+   * identity is async, so on a token change the sequence is:
+   *   1. set token (synchronous, in `setAccessToken` / `performRefresh`)
+   *   2. kick off `fetchIdentity(token)` (async)
+   *   3. ON RESOLVE → here:
+   *        a. cache identity FIRST (so getters return real values)
+   *        b. emit `onAccessTokenSet(token)` (consumer hooks re-read getOrgId()
+   *           inside this handler — identity must already be cached)
+   *        c. emit `onOrgChange(orgId)` IF orgId actually changed vs the last
+   *           emitted state
+   *
+   * The `generation` guard discards this commit if the token changed again
+   * (set/clear/refresh) while this `/auth/me` was in flight.
+   */
+  function commitIdentity(
+    generation: number,
+    token: string,
+    nextIdentity: Identity | null,
+  ): void {
+    if (generation !== tokenGeneration) {
+      // A newer token change superseded this fetch — drop the stale result.
+      return;
     }
 
+    identity = nextIdentity;
+    const nextOrgId = nextIdentity?.orgId ?? null;
+
+    // (b) Token-set first — handlers read getOrgId()/getUserId() and must see
+    // the just-cached identity.
     emitAccessTokenSet(token);
+
+    // (c) Org-change only on an actual transition.
+    if (nextOrgId !== previousOrgId) {
+      previousOrgId = nextOrgId;
+      emitOrgChange(nextOrgId);
+    }
+  }
+
+  /**
+   * Apply a new access token, kicking off async identity resolution.
+   *
+   * The token is committed synchronously (so `getAccessToken()` is immediately
+   * correct); identity + `onAccessTokenSet` + `onOrgChange` settle only after
+   * `/auth/me` resolves (see `commitIdentity`).
+   */
+  function applyToken(token: string): void {
+    tokenGeneration += 1;
+    const generation = tokenGeneration;
+    accessToken = token;
+    // Do not clear `identity` synchronously — keep the prior value visible until
+    // the fresh /auth/me resolves, avoiding a transient null flicker for getters.
+    void fetchIdentity(token).then((next) =>
+      commitIdentity(generation, token, next),
+    );
+  }
+
+  /**
+   * Clear all token + identity state synchronously and reset org tracking.
+   *
+   * `onAccessTokenSet(null)` fires synchronously (no `/auth/me` round-trip on
+   * logout). `previousOrgId` is reset so a subsequent login re-fires
+   * `onOrgChange` even when the user logs back into the same org.
+   */
+  function clearToken(): void {
+    tokenGeneration += 1; // invalidate any in-flight /auth/me
+    accessToken = null;
+    identity = null;
+    previousOrgId = null;
+    emitAccessTokenSet(null);
   }
 
   async function performRefresh(): Promise<string | null> {
@@ -164,7 +216,7 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
-        applyToken(null);
+        clearToken();
         return null;
       }
       const json = (await res.json()) as Record<string, unknown>;
@@ -177,7 +229,7 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
       }
       return token;
     } catch {
-      applyToken(null);
+      clearToken();
       return null;
     }
   }
@@ -197,7 +249,7 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
     },
 
     clearAccessToken() {
-      applyToken(null);
+      clearToken();
       if (refreshTimer) {
         clearTimeout(refreshTimer);
         refreshTimer = null;
@@ -216,29 +268,21 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
       return refreshPromise;
     },
 
-    getSessionClaims() {
-      // Return a defensive copy so external callers cannot mutate the
-      // internal claims object (e.g. push to roles, reassign userType).
-      return claims
-        ? { ...claims, roles: [...claims.roles], entitlements: [...claims.entitlements] }
-        : null;
-    },
-
     getUserId() {
-      return claims?.userId ?? null;
+      return identity?.userId ?? null;
     },
 
     getOrgId() {
-      return claims?.orgId ?? null;
+      return identity?.orgId ?? null;
     },
 
     getUserType() {
-      return claims?.userType ?? null;
+      return identity?.userType ?? null;
     },
 
     getEntitlements() {
-      // Defensive copy; [] when logged out (consistent with roles).
-      return claims ? [...claims.entitlements] : [];
+      // Defensive copy; [] when logged out or identity unresolved.
+      return identity ? [...identity.entitlements] : [];
     },
 
     onOrgChange(listener) {
