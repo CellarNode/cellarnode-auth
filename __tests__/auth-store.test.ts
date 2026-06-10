@@ -298,6 +298,35 @@ describe("createAuthStore — identity from /auth/me (CEL-622)", () => {
     expect(store.getAccessToken()).toBe("tok");
   });
 
+  it("clears prior identity synchronously on a token switch (no stale leak before /auth/me resolves)", async () => {
+    let me: AuthUser = baseMe;
+    const mockFetch = vi.fn((url: string) => {
+      if (String(url).includes("/auth/me")) return Promise.resolve(jsonResponse(me));
+      return Promise.resolve(jsonResponse({}, false, 404));
+    });
+    global.fetch = mockFetch as unknown as typeof fetch;
+
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_user1", 900);
+    await flush();
+    expect(store.getUserId()).toBe("user_123");
+    expect(store.getOrgId()).toBe("org_1");
+
+    // Switch to a DIFFERENT session's token. Identity must clear SYNCHRONOUSLY —
+    // before the new /auth/me resolves — so the previous user's id/org/entitlements
+    // never leak across the session boundary.
+    me = { ...baseMe, id: "user_999", orgId: "org_2", entitlements: [] };
+    store.setAccessToken("tok_user2", 900);
+    expect(store.getUserId()).toBeNull();
+    expect(store.getOrgId()).toBeNull();
+    expect(store.getEntitlements()).toEqual([]);
+
+    // After resolution the new identity is in place.
+    await flush();
+    expect(store.getUserId()).toBe("user_999");
+    expect(store.getOrgId()).toBe("org_2");
+  });
+
   it("getSessionClaims is removed from the store surface", () => {
     global.fetch = routedFetch({ me: baseMe }) as unknown as typeof fetch;
     const store = createAuthStore({ baseUrl: "http://localhost:4000" });
@@ -374,6 +403,21 @@ describe("createAuthStore — event surface (identity-sourced, CEL-622)", () => 
 
     me = { ...baseMe, orgId: null, userType: "admin" };
     store.setAccessToken("tok_admin", 900);
+    await flush();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(null);
+  });
+
+  it("onOrgChange fires once with null when the FIRST identity is an admin (orgId=null)", async () => {
+    // Regression: previousOrgId=null must not double as "not emitted yet", or
+    // the first admin identity (orgId null) would skip onOrgChange(null).
+    global.fetch = routedFetch({ me: { ...baseMe, orgId: null, userType: "admin" } }) as unknown as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const listener = vi.fn();
+    store.onOrgChange(listener);
+
+    store.setAccessToken("admin.jwe", 900);
     await flush();
 
     expect(listener).toHaveBeenCalledTimes(1);

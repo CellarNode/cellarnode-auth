@@ -54,9 +54,14 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
   let refreshPromise: Promise<string | null> | null = null;
 
   // Tracks the orgId observed at the last emitted state so `onOrgChange` only
-  // fires on an actual transition. Reset to null on logout so a subsequent
-  // login re-fires `onOrgChange` even for the same org.
+  // fires on an actual transition. `hasEmittedOrgId` disambiguates the two
+  // meanings `previousOrgId === null` would otherwise carry — "no org emitted
+  // yet" vs "the current org is admin/null". Without it, the FIRST admin
+  // identity (orgId null) and an admin login right after `clearToken()` would
+  // skip `onOrgChange(null)`. Both are reset on logout so a subsequent login
+  // re-fires `onOrgChange` even into the same org.
   let previousOrgId: string | null = null;
+  let hasEmittedOrgId = false;
 
   // Monotonic generation counter. Bumped on every token change (set / clear /
   // refresh). An in-flight `/auth/me` resolution only commits if its captured
@@ -168,8 +173,11 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
     // the just-cached identity.
     emitAccessTokenSet(token);
 
-    // (c) Org-change only on an actual transition.
-    if (nextOrgId !== previousOrgId) {
+    // (c) Org-change on the first emission OR an actual transition. The
+    // `!hasEmittedOrgId` guard ensures the first identity (incl. an admin
+    // orgId of null) always fires once.
+    if (!hasEmittedOrgId || nextOrgId !== previousOrgId) {
+      hasEmittedOrgId = true;
       previousOrgId = nextOrgId;
       emitOrgChange(nextOrgId);
     }
@@ -186,8 +194,14 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
     tokenGeneration += 1;
     const generation = tokenGeneration;
     accessToken = token;
-    // Do not clear `identity` synchronously — keep the prior value visible until
-    // the fresh /auth/me resolves, avoiding a transient null flicker for getters.
+    // Clear the prior session's identity synchronously so the getters return
+    // the documented null/[] defaults until the fresh /auth/me resolves —
+    // otherwise a token switch (e.g. logging in as a different user) would leak
+    // the previous session's userId/orgId/entitlements until the new fetch
+    // lands. The realtime consumer hooks read the getters on events (not by
+    // polling), so this introduces no flicker: a same-user refresh re-commits
+    // the same orgId without firing `onOrgChange`.
+    identity = null;
     void fetchIdentity(token).then((next) =>
       commitIdentity(generation, token, next),
     );
@@ -205,6 +219,7 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
     accessToken = null;
     identity = null;
     previousOrgId = null;
+    hasEmittedOrgId = false;
     emitAccessTokenSet(null);
   }
 
