@@ -5,6 +5,7 @@ export { RegisterForm, type RegisterFormProps } from "./register-form.js";
 export {
   UnauthorizedPage,
   type UnauthorizedPageProps,
+  type UnauthorizedPageLabels,
 } from "./unauthorized.js";
 export type { DashboardLink } from "../types.js";
 export { SquircleShift, type SquircleShiftProps } from "./squircle-shift.js";
