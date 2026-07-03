@@ -1,0 +1,25 @@
+src/react/unauthorized.tsx
+  s_7bc83b3f0fbeb1::t_92e38199b674e4 4,7-38,44-45,53,68-70,72-80,86-88,95,109-111,113-118,124
+vitest.config.ts
+  s_7bc83b3f0fbeb1::t_3e20b869c6a3cc 5
+__tests__/unauthorized.test.tsx
+  s_7bc83b3f0fbeb1::t_3c3caa5cff4a3a 1-99
+src/react/index.ts
+  s_7bc83b3f0fbeb1::t_97d4a6fddb7d9c 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9c37744161cac72dc6483f7138543de9b4df06da",
+  "prompts": {},
+  "sessions": {
+    "s_7bc83b3f0fbeb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "634d3ffd-5f2d-46ab-b190-2422ffb377de",
+        "model": "claude-fable-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
