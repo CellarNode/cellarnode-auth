@@ -1,2 +1,7 @@
 node_modules
 dist
+
+# RepoSkein per-machine MCP config (absolute paths + a local backend password);
+# regenerated per machine by `reposkein-mcp init`. Only .reposkein/ is shared.
+.mcp.json
+opencode.json
