@@ -50,11 +50,19 @@ export interface LoginFormProps {
     remainingAttempts?: number;
     authenticatedUserType?: string;
   }) => void;
-  /** Custom content shown below the input when the email is not found (USER_NOT_FOUND). Replaces the default "Create an account instead" link. Pass ReactNode for full control. */
-  notFoundContent?: React.ReactNode;
 }
 
 type Step = "email" | "otp";
+
+/**
+ * Uniform, anti-enumeration notice shown once the email step is submitted
+ * (CEL-964). The backend now returns the same ack whether or not the account
+ * exists, so the UI must not imply either — it only confirms that IF an account
+ * exists, a code is on its way. Exported for direct unit testing.
+ */
+export function otpSentNotice(email: string): string {
+  return `If an account exists for ${email}, we've sent a code.`;
+}
 
 function formatCountdown(target: string | null, fallback = "10:00") {
   if (!target) return fallback;
@@ -65,7 +73,6 @@ function formatCountdown(target: string | null, fallback = "10:00") {
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  USER_NOT_FOUND: "No account found with this email.",
   OTP_RATE_LIMIT: "Too many code requests. Please wait before trying again.",
   OTP_NOT_FOUND: "Code expired. Please request a new one.",
   OTP_MAX_ATTEMPTS: "Too many failed attempts. Please request a new code.",
@@ -88,13 +95,11 @@ export function LoginForm({
   showRegisterInFooter = false,
   onBack,
   onError,
-  notFoundContent,
 }: LoginFormProps) {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [isNotFound, setIsNotFound] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [resendAvailableAt, setResendAvailableAt] = useState<string | null>(null);
@@ -138,9 +143,6 @@ export function LoginForm({
           : ERROR_MESSAGES[err.code] ?? err.message ?? "Something went wrong";
 
       // Side effects for specific error codes
-      if (err.code === "USER_NOT_FOUND") {
-        setIsNotFound(true);
-      }
       if (err.code === "OTP_NOT_FOUND" || err.code === "OTP_MAX_ATTEMPTS") {
         setExpiresAt(new Date(0).toISOString());
         setResendAvailableAt(new Date(0).toISOString());
@@ -170,7 +172,6 @@ export function LoginForm({
   async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setIsNotFound(false);
     setIsSubmitting(true);
 
     try {
@@ -189,7 +190,6 @@ export function LoginForm({
   async function handleOtpSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setIsNotFound(false);
     setIsSubmitting(true);
 
     try {
@@ -217,7 +217,6 @@ export function LoginForm({
 
   async function handleResend() {
     setError("");
-    setIsNotFound(false);
     setIsSubmitting(true);
 
     try {
@@ -297,7 +296,7 @@ export function LoginForm({
             <p className="mt-2 text-sm/6 text-muted-foreground">
               {step === "email"
                 ? "Enter your work email to receive a one-time access code."
-                : `We sent a 6-digit code to ${normalizedEmail}.`}
+                : otpSentNotice(normalizedEmail)}
             </p>
 
             {/* Forms */}
@@ -331,11 +330,6 @@ export function LoginForm({
                       <div className="flex items-start gap-2 text-sm text-destructive">
                         <AlertCircle className="size-4 shrink-0 mt-0.5" />
                         <span>{error}</span>
-                      </div>
-                    )}
-                    {isNotFound && notFoundContent && (
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        {notFoundContent}
                       </div>
                     )}
                   </div>
@@ -425,7 +419,6 @@ export function LoginForm({
                         setStep("email");
                         setCode("");
                         setError("");
-                        setIsNotFound(false);
                       }}
                     >
                       <span className="inline-flex items-center gap-1">
