@@ -1,0 +1,19 @@
+package-lock.json
+  s_9f077f615b828c::t_f15cc7dd8681bb 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7e3ef326c6e804d3239dbabb153a404185de2ebd",
+  "prompts": {},
+  "sessions": {
+    "s_9f077f615b828c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68c85f90-4d0f-48fc-b5ef-4b2605d6b2ee",
+        "model": "unknown"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
