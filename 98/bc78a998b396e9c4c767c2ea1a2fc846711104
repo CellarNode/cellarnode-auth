@@ -1,0 +1,23 @@
+__tests__/login-form.test.tsx
+  s_9f077f615b828c::t_498603564fde3f 1-82
+src/react/login-form.tsx
+  s_9f077f615b828c::t_1fc15f7310b18f 299
+  s_9f077f615b828c::t_338bb56768dc20 57-65
+  s_9f077f615b828c::t_f3622e1b04252d 66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "98bc78a998b396e9c4c767c2ea1a2fc846711104",
+  "prompts": {},
+  "sessions": {
+    "s_9f077f615b828c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68c85f90-4d0f-48fc-b5ef-4b2605d6b2ee",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
