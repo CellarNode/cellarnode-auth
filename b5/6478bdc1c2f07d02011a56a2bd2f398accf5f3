@@ -1,0 +1,21 @@
+package-lock.json
+  s_78bba6eda974a7::t_79030a8eab546d 3,9
+package.json
+  s_78bba6eda974a7::t_1fc9cbcb75e1e2 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b56478bdc1c2f07d02011a56a2bd2f398accf5f3",
+  "prompts": {},
+  "sessions": {
+    "s_78bba6eda974a7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f93c4c36-e6a6-4b37-9eed-00a6fbbd0432",
+        "model": "claude-fable-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
