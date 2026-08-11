@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InputOTP,
   InputOTPGroup,
+  InputOTPSeparator,
   InputOTPSlot,
 } from "../src/react/input-otp-slots.js";
 import { LoginForm } from "../src/react/login-form.js";
@@ -63,24 +64,24 @@ describe("LoginForm narrow OTP layout", () => {
     await Promise.resolve();
     await vi.runAllTimersAsync();
     expect(getByRole("heading", { name: "Check your email" })).toBeTruthy();
-    const otp = container.querySelector<HTMLElement>('[data-slot="input-otp"]');
+    const otp = container.querySelector<HTMLElement>(
+      '[data-slot="input-otp-root"]',
+    );
     const slots = container.querySelectorAll('[data-slot="input-otp-slot"]');
     const otpStyles = container.querySelector("style");
-    const containerRule = Array.from(otpStyles?.sheet?.cssRules ?? []).find(
-      (rule): rule is CSSContainerRule => rule instanceof CSSContainerRule,
-    );
-    const responsiveSlotRule = Array.from(containerRule?.cssRules ?? []).find(
+    const responsiveSlotRule = Array.from(
+      otpStyles?.sheet?.cssRules ?? [],
+    ).find(
       (rule): rule is CSSStyleRule =>
         rule instanceof CSSStyleRule &&
         rule.selectorText ===
-          '[data-slot="input-otp"] > [data-input-otp-container]',
+          '[data-slot="input-otp-root"] > [data-input-otp-container]',
     );
 
     expect(otp).not.toBeNull();
     expect(otp?.classList).toContain("w-full");
     expect(otp?.style.containerType).toBe("inline-size");
     expect(slots).toHaveLength(6);
-    expect(containerRule?.conditionText).toBe("(max-width: 24rem)");
     expect(
       responsiveSlotRule?.style.getPropertyValue("--input-otp-slot-width"),
     ).toContain("100cqw");
@@ -101,7 +102,9 @@ describe("LoginForm narrow OTP layout", () => {
       </InputOTP>,
     );
 
-    const otp = container.querySelector<HTMLElement>('[data-slot="input-otp"]');
+    const otp = container.querySelector<HTMLElement>(
+      '[data-slot="input-otp-root"]',
+    );
     const slots = container.querySelectorAll('[data-slot="input-otp-slot"]');
     const hiddenInput = container.querySelector('[data-input-otp]');
 
@@ -109,6 +112,12 @@ describe("LoginForm narrow OTP layout", () => {
     expect(otp?.hasAttribute("data-invalid")).toBe(false);
     expect(otp?.hasAttribute("data-shaking")).toBe(false);
     expect(slots).toHaveLength(4);
-    expect(hiddenInput?.getAttribute("data-slot")).toBeNull();
+    expect(hiddenInput?.getAttribute("data-slot")).toBe("input-otp");
+  });
+
+  it("preserves separator semantics", () => {
+    const { getByRole } = render(<InputOTPSeparator />);
+
+    expect(getByRole("separator")).toBeTruthy();
   });
 });
