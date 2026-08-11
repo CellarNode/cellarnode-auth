@@ -1,0 +1,30 @@
+CHANGELOG.md
+  s_a9186c53cb5e06::t_d63201d0892855 6-7
+__tests__/login-form-responsive.test.tsx
+  s_a9186c53cb5e06::t_9cd2d04318f632 6,116-121
+  s_a9186c53cb5e06::t_4506226aeb366f 67-69,78,105-107,115
+  s_a9186c53cb5e06::t_f2e54796127006 72-74
+src/react/input-otp-slots.tsx
+  s_a9186c53cb5e06::t_e4eee8d68ec287 216-228
+  s_a9186c53cb5e06::t_60b8a462236a1e 34-38,59,62,66,86,93-95
+.reposkein/edges.jsonl
+  s_a9186c53cb5e06::t_c94a3a40c210c5 54
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_0ae439dcea8ef1 7,15,28,65-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "65109d2b4b531cfd5c42a375b0373c555764dbf2",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
