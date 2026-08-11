@@ -9,7 +9,7 @@ export type InputOTPProps = React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string;
 };
 
-const OTP_STYLES = `
+export const OTP_STYLES = `
   @keyframes caretBlink {
     0%, 70% { opacity: 1; }
     71%, 100% { opacity: 0; }
@@ -53,6 +53,13 @@ const OTP_STYLES = `
   }
   [data-slot="input-otp"][data-shaking] {
     animation: otpShake 0.4s ease;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="input-otp"],
+    [data-slot="input-otp"] * {
+      animation: none !important;
+      transition: none !important;
+    }
   }
 `;
 

@@ -15,6 +15,7 @@
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx"}
+{"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:src","type":"CONTAINS","to":"rs1:7dc1dbe8d512:dir:src/react"}
@@ -54,6 +55,8 @@
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form.test.tsx#authStore"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","symbols":["classTokensAt"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/login-form.tsx","symbols":["LoginForm","otpSentNotice"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/input-otp-slots.tsx","symbols":["OTP_STYLES"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","symbols":["STATIC_SHADER_TIME","getShaderTime","getSquircleFrameloop"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/register-form.test.tsx#noop@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/register-form.test.tsx#authApi"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","symbols":["classTokensAt"]}
@@ -108,8 +111,12 @@
 {"from":"rs1:7dc1dbe8d512:file:src/react/register-form.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthApi","AuthError"]}
 {"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#ShaderPlane@1"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#SquircleShift@1"}
+{"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#getShaderTime@2"}
+{"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#getSquircleFrameloop@1"}
+{"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#useMotionEnabled@0"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:iface:src/react/squircle-shift.tsx#ShaderPlaneProps"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:iface:src/react/squircle-shift.tsx#SquircleShiftProps"}
+{"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:src/react/squircle-shift.tsx#STATIC_SHADER_TIME"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:src/react/squircle-shift.tsx#fragmentShader"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:src/react/squircle-shift.tsx#vertexShader"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/unauthorized.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/unauthorized.tsx#UnauthorizedPage@1"}
@@ -159,3 +166,5 @@
 {"from":"rs1:7dc1dbe8d512:func:src/react/login-form.tsx#LoginForm@1","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/login-form.tsx#LoginForm.handleOtpSubmit@1"}
 {"from":"rs1:7dc1dbe8d512:func:src/react/login-form.tsx#LoginForm@1","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/login-form.tsx#LoginForm.handleResend@0"}
 {"from":"rs1:7dc1dbe8d512:func:src/react/register-form.tsx#RegisterForm@1","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/register-form.tsx#RegisterForm.handleSubmit@1"}
+{"from":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#SquircleShift@1","type":"CALLS","to":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#getSquircleFrameloop@1","call_sites":1,"confidence":1.0,"resolution":"exact"}
+{"from":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#SquircleShift@1","type":"CALLS","to":"rs1:7dc1dbe8d512:func:src/react/squircle-shift.tsx#useMotionEnabled@0","call_sites":1,"confidence":1.0,"resolution":"exact"}
