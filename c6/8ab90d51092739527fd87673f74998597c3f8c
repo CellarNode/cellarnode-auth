@@ -1,0 +1,25 @@
+__tests__/login-form-responsive.test.tsx
+  s_a9186c53cb5e06::t_73bd848037bc4f 69-77,83-89
+  s_a9186c53cb5e06::t_dfb229d034b548 94,109-110
+src/react/input-otp-slots.tsx
+  s_a9186c53cb5e06::t_7d3e663e93485d 90,209
+  s_a9186c53cb5e06::t_9231d7a2c7726a 93-94
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_5794c2b7b08049 15,28,65,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c68ab90d51092739527fd87673f74998597c3f8c",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
