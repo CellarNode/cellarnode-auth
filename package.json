@@ -81,8 +81,11 @@
   },
   "devDependencies": {
     "@react-three/fiber": ">=8.0.0",
+    "@testing-library/dom": "^10.0.0",
+    "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/three": ">=0.160.0",
+    "happy-dom": "^20.0.0",
     "input-otp": ">=1.4.0",
     "lucide-react": ">=0.400.0",
     "react": "^19.0.0",
