@@ -9,7 +9,7 @@ export type InputOTPProps = React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string;
 };
 
-export const OTP_STYLES = `
+const OTP_STYLES = `
   @keyframes caretBlink {
     0%, 70% { opacity: 1; }
     71%, 100% { opacity: 0; }

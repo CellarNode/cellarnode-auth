@@ -10,21 +10,6 @@ export interface SquircleShiftProps {
   className?: string;
 }
 
-export const STATIC_SHADER_TIME = 0;
-
-export function getSquircleFrameloop(
-  prefersReducedMotion: boolean,
-): "always" | "demand" {
-  return prefersReducedMotion ? "demand" : "always";
-}
-
-export function getShaderTime(
-  elapsedTime: number,
-  prefersReducedMotion: boolean,
-): number {
-  return prefersReducedMotion ? STATIC_SHADER_TIME : elapsedTime;
-}
-
 function useMotionEnabled(): boolean {
   const [isMotionEnabled, setIsMotionEnabled] = useState(false);
 
@@ -198,10 +183,9 @@ function ShaderPlane({
 
   useFrame((state) => {
     if (materialRef.current) {
-      materialRef.current.uniforms.u_time.value = getShaderTime(
-        state.clock.elapsedTime,
-        !isMotionEnabled,
-      );
+      materialRef.current.uniforms.u_time.value = isMotionEnabled
+        ? state.clock.elapsedTime
+        : 0;
       materialRef.current.uniforms.u_resolution.value.set(
         viewport.width * 100,
         viewport.height * 100,
@@ -253,7 +237,7 @@ export const SquircleShift: React.FC<SquircleShiftProps> = ({
         className="absolute inset-0 size-full"
         gl={{ antialias: true, alpha: false }}
         camera={{ position: [0, 0, 1], fov: 75 }}
-        frameloop={getSquircleFrameloop(!isMotionEnabled)}
+        frameloop={isMotionEnabled ? "always" : "demand"}
       >
         <ShaderPlane
           isMotionEnabled={isMotionEnabled}
