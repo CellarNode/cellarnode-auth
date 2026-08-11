@@ -31,18 +31,12 @@ const OTP_STYLES = `
   [data-slot="input-otp-slot"] {
     width: var(--input-otp-slot-width, 52px);
   }
-  [data-slot="input-otp"] > [data-input-otp-container] {
-    --input-otp-slot-width: 52px;
+  [data-slot="input-otp-root"] > [data-input-otp-container] {
+    --input-otp-slot-width: min(
+      52px,
+      calc((100cqw - 24px) / var(--input-otp-slot-count))
+    );
     --input-otp-separator-width: 24px;
-  }
-  @container (max-width: 24rem) {
-    [data-slot="input-otp"] > [data-input-otp-container] {
-      --input-otp-slot-width: clamp(
-        40px,
-        calc((100cqw - 24px) / var(--input-otp-slot-count)),
-        52px
-      );
-    }
   }
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"]:first-child {
     border-left-width: 2px;
@@ -62,14 +56,14 @@ const OTP_STYLES = `
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"][data-active]:first-child {
     margin-left: 0;
   }
-  [data-slot="input-otp"][data-invalid] [data-slot="input-otp-slot"] {
+  [data-slot="input-otp-root"][data-invalid] [data-slot="input-otp-slot"] {
     border-color: var(--destructive, #ef4444);
   }
-  [data-slot="input-otp"][data-invalid] [data-slot="input-otp-slot"][data-active] {
+  [data-slot="input-otp-root"][data-invalid] [data-slot="input-otp-slot"][data-active] {
     border-color: var(--destructive, #ef4444) !important;
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive, #ef4444) 20%, transparent), 0 1px 2px 0 rgba(0,0,0,0.05);
   }
-  [data-slot="input-otp"][data-shaking] {
+  [data-slot="input-otp-root"][data-shaking] {
     animation: otpShake 0.4s ease;
   }
   @media (prefers-reduced-motion: reduce) {
@@ -96,13 +90,16 @@ export function InputOTP({
     <>
       <style>{OTP_STYLES}</style>
       <div
-        data-slot="input-otp"
+        data-slot="input-otp-root"
         data-invalid={dataInvalid ? true : undefined}
         data-shaking={dataShaking ? true : undefined}
         className="w-full"
         style={containerStyle}
       >
         <OTPInput
+          data-slot="input-otp"
+          data-invalid={dataInvalid ? true : undefined}
+          data-shaking={dataShaking ? true : undefined}
           containerClassName={clsx(
             "flex w-full items-center has-disabled:opacity-50",
             containerClassName,
@@ -213,7 +210,6 @@ export function InputOTPSeparator({
   return (
     <div
       data-slot="input-otp-separator"
-      aria-hidden="true"
       style={{
         display: "flex",
         alignItems: "center",
@@ -224,6 +220,19 @@ export function InputOTPSeparator({
       }}
       {...props}
     >
+      <hr
+        style={{
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          padding: 0,
+          margin: "-1px",
+          overflow: "hidden",
+          clip: "rect(0, 0, 0, 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      />
       <Minus style={{ width: "20px", height: "20px" }} />
     </div>
   );
