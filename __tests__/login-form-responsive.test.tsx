@@ -1,5 +1,10 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "../src/react/input-otp-slots.js";
 import { LoginForm } from "../src/react/login-form.js";
 import type { AuthApi, AuthStore } from "../src/types.js";
 
@@ -67,5 +72,26 @@ describe("LoginForm narrow OTP layout", () => {
     expect(otp?.style.containerType).toBe("inline-size");
     expect(slots).toHaveLength(6);
     expect(otpStyles?.textContent).toContain("--input-otp-slot-width");
+  });
+
+  it("derives slot sizing from configurable OTP length", () => {
+    const { container } = render(
+      <InputOTP maxLength={4}>
+        <InputOTPGroup>
+          <InputOTPSlot index={0} />
+          <InputOTPSlot index={1} />
+          <InputOTPSlot index={2} />
+          <InputOTPSlot index={3} />
+        </InputOTPGroup>
+      </InputOTP>,
+    );
+
+    const otp = container.querySelector<HTMLElement>('[data-slot="input-otp"]');
+    const slots = container.querySelectorAll('[data-slot="input-otp-slot"]');
+    const hiddenInput = container.querySelector('[data-input-otp]');
+
+    expect(otp?.style.getPropertyValue("--input-otp-slot-count")).toBe("4");
+    expect(slots).toHaveLength(4);
+    expect(hiddenInput?.getAttribute("data-slot")).toBeNull();
   });
 });

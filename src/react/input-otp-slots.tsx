@@ -37,7 +37,11 @@ const OTP_STYLES = `
   }
   @container (max-width: 24rem) {
     [data-slot="input-otp"] > [data-input-otp-container] {
-      --input-otp-slot-width: clamp(40px, calc((100cqw - 24px) / 6), 52px);
+      --input-otp-slot-width: clamp(
+        40px,
+        calc((100cqw - 24px) / var(--input-otp-slot-count)),
+        52px
+      );
     }
   }
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"]:first-child {
@@ -76,6 +80,11 @@ export function InputOTP({
   "data-shaking": dataShaking,
   ...props
 }: InputOTPProps) {
+  const containerStyle = {
+    containerType: "inline-size",
+    "--input-otp-slot-count": props.maxLength ?? 6,
+  } satisfies React.CSSProperties & { "--input-otp-slot-count": number };
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: OTP_STYLES }} />
@@ -84,12 +93,9 @@ export function InputOTP({
         data-invalid={dataInvalid}
         data-shaking={dataShaking}
         className="w-full"
-        style={{ containerType: "inline-size" }}
+        style={containerStyle}
       >
         <OTPInput
-          data-slot="input-otp"
-          data-invalid={dataInvalid}
-          data-shaking={dataShaking}
           containerClassName={clsx(
             "flex w-full items-center has-disabled:opacity-50",
             containerClassName,
