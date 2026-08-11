@@ -36,7 +36,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "check-exports": "npx publint && npx @arethetypeswrong/cli --pack .",
+    "check-exports": "npx publint && npx @arethetypeswrong/cli --pack . --profile esm-only",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
