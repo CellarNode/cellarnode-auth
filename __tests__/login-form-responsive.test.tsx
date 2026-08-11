@@ -115,6 +115,43 @@ describe("LoginForm narrow OTP layout", () => {
     expect(hiddenInput?.getAttribute("data-slot")).toBe("input-otp");
   });
 
+  it("budgets every separator across nested OTP groups", () => {
+    // Given
+    const { container } = render(
+      <InputOTP maxLength={9}>
+        <>
+          <InputOTPGroup>
+            <InputOTPSlot index={0} />
+            <InputOTPSlot index={1} />
+            <InputOTPSlot index={2} />
+          </InputOTPGroup>
+          <InputOTPSeparator />
+          <InputOTPGroup>
+            <InputOTPSlot index={3} />
+            <InputOTPSlot index={4} />
+            <InputOTPSlot index={5} />
+          </InputOTPGroup>
+          <InputOTPSeparator />
+          <InputOTPGroup>
+            <InputOTPSlot index={6} />
+            <InputOTPSlot index={7} />
+            <InputOTPSlot index={8} />
+          </InputOTPGroup>
+        </>
+      </InputOTP>,
+    );
+
+    // When
+    const otp = container.querySelector<HTMLElement>(
+      '[data-slot="input-otp-root"]',
+    );
+
+    // Then
+    expect(otp?.style.getPropertyValue("--input-otp-separator-budget")).toBe(
+      "48px",
+    );
+  });
+
   it("preserves separator semantics", () => {
     const { getByRole } = render(<InputOTPSeparator />);
 
