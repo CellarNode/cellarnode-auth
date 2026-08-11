@@ -7,6 +7,8 @@ import { Minus } from "lucide-react";
 
 export type InputOTPProps = React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string;
+  "data-invalid"?: boolean;
+  "data-shaking"?: boolean;
 };
 
 const OTP_STYLES = `
@@ -25,6 +27,18 @@ const OTP_STYLES = `
   }
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"] {
     border-left-width: 0;
+  }
+  [data-slot="input-otp-slot"] {
+    width: var(--input-otp-slot-width, 52px);
+  }
+  [data-slot="input-otp"] > [data-input-otp-container] {
+    --input-otp-slot-width: 52px;
+    --input-otp-separator-width: 24px;
+  }
+  @container (max-width: 24rem) {
+    [data-slot="input-otp"] > [data-input-otp-container] {
+      --input-otp-slot-width: clamp(40px, calc((100cqw - 24px) / 6), 52px);
+    }
   }
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"]:first-child {
     border-left-width: 2px;
@@ -56,18 +70,33 @@ const OTP_STYLES = `
   }
 `;
 
-export function InputOTP({ containerClassName, ...props }: InputOTPProps) {
+export function InputOTP({
+  containerClassName,
+  "data-invalid": dataInvalid,
+  "data-shaking": dataShaking,
+  ...props
+}: InputOTPProps) {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: OTP_STYLES }} />
-      <OTPInput
+      <div
         data-slot="input-otp"
-        containerClassName={clsx(
-          "flex items-center has-disabled:opacity-50",
-          containerClassName,
-        )}
-        {...props}
-      />
+        data-invalid={dataInvalid}
+        data-shaking={dataShaking}
+        className="w-full"
+        style={{ containerType: "inline-size" }}
+      >
+        <OTPInput
+          data-slot="input-otp"
+          data-invalid={dataInvalid}
+          data-shaking={dataShaking}
+          containerClassName={clsx(
+            "flex w-full items-center has-disabled:opacity-50",
+            containerClassName,
+          )}
+          {...props}
+        />
+      </div>
     </>
   );
 }
@@ -107,7 +136,6 @@ export function InputOTPSlot({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "52px",
         height: "60px",
         fontSize: "24px",
         fontWeight: 600,
@@ -177,7 +205,7 @@ export function InputOTPSeparator({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "24px",
+        width: "var(--input-otp-separator-width, 24px)",
         color: "var(--muted-foreground, #94a3b8)",
         ...style,
       }}
