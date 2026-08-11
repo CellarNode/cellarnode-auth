@@ -1,0 +1,41 @@
+__tests__/login-form.test.tsx
+  s_a9186c53cb5e06::t_c21a598914790a 50-60
+src/react/unauthorized.tsx
+  s_a9186c53cb5e06::t_780e427ff116dd 63-64,105-106
+  s_a9186c53cb5e06::t_8cc32713d0447e 92,122
+__tests__/register-form.test.tsx
+  s_a9186c53cb5e06::t_c21a598914790a 1-52
+src/react/login-form.tsx
+  s_a9186c53cb5e06::t_780e427ff116dd 236
+src/react/register-form.tsx
+  s_a9186c53cb5e06::t_780e427ff116dd 67,89
+  s_a9186c53cb5e06::t_8cc32713d0447e 77
+package.json
+  s_a9186c53cb5e06::t_ea082c317a61b5 3
+__tests__/unauthorized.test.tsx
+  s_a9186c53cb5e06::t_c21a598914790a 16-27
+CHANGELOG.md
+  s_a9186c53cb5e06::t_ea082c317a61b5 3-7
+.reposkein/edges.jsonl
+  s_a9186c53cb5e06::t_07387cd63a6301 17,54-57
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_a47ae63e086f3a 7,14-18,27-28,30,43,70,74,77,102
+package-lock.json
+  s_a9186c53cb5e06::t_dd102a70f8b648 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5af117a9cadf0f7db98d2aeefe5eaa4e98650203",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
