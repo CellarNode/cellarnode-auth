@@ -1,0 +1,25 @@
+package.json
+  s_a9186c53cb5e06::t_b962c7b8e795fe 3
+CHANGELOG.md
+  s_a9186c53cb5e06::t_b962c7b8e795fe 3-7
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_9cd001c372abbf 7,20-21,29,67-70
+package-lock.json
+  s_a9186c53cb5e06::t_0dae197c56e112 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "aefc76d965774467eea5ba1752b5f6cd099b88d8",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
