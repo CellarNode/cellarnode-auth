@@ -1,0 +1,28 @@
+src/react/input-otp-slots.tsx
+  s_a9186c53cb5e06::t_2b6fe015d23dcb 12,57-62
+  s_a9186c53cb5e06::t_6739ee77dc25e1 63
+src/react/squircle-shift.tsx
+  s_a9186c53cb5e06::t_2b6fe015d23dcb 3,13-43,133,152,201-204,244,256,259
+__tests__/reduced-motion.test.ts
+  s_a9186c53cb5e06::t_5550b472db62ae 1-49
+.reposkein/edges.jsonl
+  s_a9186c53cb5e06::t_4c57ff82083400 18,58-59,114-116,119,169-170
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_38257e7b814450 16,28,31,65-68,79-83,89,114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "f7816b8e1470450aa0995b55c1de9f82f1b84bec",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
