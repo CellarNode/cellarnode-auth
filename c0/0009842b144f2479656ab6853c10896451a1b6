@@ -1,0 +1,31 @@
+package.json
+  s_a9186c53cb5e06::t_6b9960d46ad5e0 3
+__tests__/login-form-responsive.test.tsx
+  s_a9186c53cb5e06::t_d028e9d4c30b69 2,31-39,59
+  s_a9186c53cb5e06::t_25bbdbbe5c5c7b 43,60
+  s_a9186c53cb5e06::t_a78b4895cc8b75 58
+CHANGELOG.md
+  s_a9186c53cb5e06::t_6b9960d46ad5e0 3-7
+.reposkein/edges.jsonl
+  s_a9186c53cb5e06::t_a98410f238faa8 17,52-55
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_1967507de0aea9 7,15,19-20,28,35,65-68,104-105
+package-lock.json
+  s_a9186c53cb5e06::t_7a8ad90896128f 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c00009842b144f2479656ab6853c10896451a1b6",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
