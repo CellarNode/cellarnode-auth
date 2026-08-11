@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LoginForm, otpSentNotice } from "../src/react/login-form.js";
+import { classTokensAt } from "./class-tokens.js";
 
 // CEL-964: the login form must not leak whether an account exists. The old
 // USER_NOT_FOUND branch (which showed "No account found" + a create-account CTA
@@ -47,6 +48,17 @@ function renderEmailStep(extraProps: Record<string, unknown> = {}) {
 }
 
 describe("LoginForm anti-enumeration (CEL-964)", () => {
+  it("owns a semantic background and foreground at its page boundary", () => {
+    // Given: a consumer rendering the shared full-page login surface.
+    // When: the email step is rendered.
+    const html = renderEmailStep();
+
+    // Then: theme-aware text always has a matching theme-aware surface.
+    expect(classTokensAt(html, 0)).toEqual(
+      expect.arrayContaining(["bg-background", "text-foreground"]),
+    );
+  });
+
   it("shows a create-account affordance unconditionally on the email step", () => {
     const html = renderEmailStep();
 
