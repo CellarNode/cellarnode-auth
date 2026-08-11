@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.3
+
+### Fixed
+- SquircleShift and OTP feedback now honor `prefers-reduced-motion` without losing visible error and focus feedback.
+
 ## 0.13.2
 
 ### Fixed
