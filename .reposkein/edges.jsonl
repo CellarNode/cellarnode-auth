@@ -64,7 +64,7 @@
 {"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/reduced-motion.test.tsx#createMatchMediaController@1"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:iface:__tests__/reduced-motion.test.tsx#MatchMediaController"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/reduced-motion.test.tsx#matchMediaController"}
-{"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/input-otp-slots.tsx","symbols":["InputOTP"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/input-otp-slots.tsx","symbols":["InputOTP","InputOTPGroup","InputOTPSlot"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/squircle-shift.tsx","symbols":["SquircleShift"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/register-form.test.tsx#noop@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/register-form.test.tsx#authApi"}

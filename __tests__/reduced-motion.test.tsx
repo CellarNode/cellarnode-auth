@@ -2,7 +2,11 @@
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { InputOTP } from "../src/react/input-otp-slots.js";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "../src/react/input-otp-slots.js";
 import { SquircleShift } from "../src/react/squircle-shift.js";
 
 vi.mock("@react-three/fiber", () => ({
@@ -15,14 +19,32 @@ vi.mock("@react-three/fiber", () => ({
 
 vi.mock("input-otp", async () => {
   const ReactModule = await import("react");
+  const OTPInputContext = ReactModule.createContext({
+    slots: [{ char: null, hasFakeCaret: true, isActive: false }],
+  });
 
   return {
-    OTPInput: ({ "data-shaking": dataShaking }: { readonly "data-shaking"?: boolean }) =>
-      ReactModule.createElement("div", {
-        "data-slot": "input-otp",
-        "data-shaking": dataShaking || undefined,
-      }),
-    OTPInputContext: ReactModule.createContext({ slots: [] }),
+    OTPInput: ({
+      children,
+      "data-shaking": dataShaking,
+    }: {
+      readonly children?: React.ReactNode;
+      readonly "data-shaking"?: boolean;
+    }) =>
+      ReactModule.createElement(
+        OTPInputContext.Provider,
+        { value: { slots: [{ char: null, hasFakeCaret: true, isActive: false }] } },
+        ReactModule.createElement(
+          ReactModule.Fragment,
+          null,
+          ReactModule.createElement("div", {
+            "data-slot": "input-otp",
+            "data-shaking": dataShaking || undefined,
+          }),
+          children,
+        ),
+      ),
+    OTPInputContext,
   };
 });
 
@@ -102,21 +124,34 @@ describe("reduced-motion feedback (CEL-1395)", () => {
     expect(matchMediaController.listenerCount()).toBe(0);
   });
 
-  it("disables OTP root animation when motion is reduced", () => {
-    // Given: the shared OTP input supplies its keyframe styles.
-    const { container } = render(<InputOTP data-shaking maxLength={6} />);
-
-    // When: the mounted input exposes its style sheet and invalid feedback surface.
-    const styleSheet = container.querySelector("style")?.sheet;
-    const reducedMotionRule = Array.from(styleSheet?.cssRules ?? []).find((rule) =>
-      rule.cssText.includes("prefers-reduced-motion: reduce"),
+  it("covers root and sibling visual OTP animations when motion is reduced", () => {
+    // Given: a shaking root with a sibling visual slot containing a fake caret.
+    const { container } = render(
+      <InputOTP data-shaking maxLength={1}>
+        <InputOTPGroup>
+          <InputOTPSlot index={0} />
+        </InputOTPGroup>
+      </InputOTP>,
     );
-    const otpInput = container.querySelector("[data-slot='input-otp']");
 
-    // Then: root shake plus every OTP descendant have animation and transition feedback disabled.
-    expect(otpInput?.hasAttribute("data-shaking")).toBe(true);
-    expect(reducedMotionRule?.cssText).toContain('[data-slot="input-otp-root"]');
-    expect(reducedMotionRule?.cssText).toContain("animation: none !important;");
-    expect(reducedMotionRule?.cssText).toContain("transition: none !important;");
+    // When: rendered animated elements are compared to the reduced-motion DOM selector.
+    const styleSheet = container.querySelector("style")?.sheet;
+    const reducedMotionStyleRule = Array.from(styleSheet?.cssRules ?? []).flatMap((rule) =>
+      rule instanceof CSSMediaRule ? Array.from(rule.cssRules) : [],
+    ).find(
+      (rule): rule is CSSStyleRule =>
+        rule instanceof CSSStyleRule && rule.style.animation === "none",
+    );
+    const root = container.querySelector<HTMLElement>("[data-slot='input-otp-root']");
+    const animatedVisualElements = Array.from(root?.querySelectorAll<HTMLElement>("*") ?? [])
+      .filter((element) => element.style.animation || element.style.transition);
+
+    // Then: every normally animated root or visual sibling matches an animation-free selector.
+    expect(root).not.toBeNull();
+    expect(animatedVisualElements).not.toHaveLength(0);
+    expect(reducedMotionStyleRule?.style.transition).toBe("none");
+    expect([root, ...animatedVisualElements].every((element) =>
+      element?.matches(reducedMotionStyleRule?.selectorText ?? ""),
+    )).toBe(true);
   });
 });
