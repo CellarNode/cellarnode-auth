@@ -66,17 +66,32 @@ describe("LoginForm narrow OTP layout", () => {
     const otp = container.querySelector<HTMLElement>('[data-slot="input-otp"]');
     const slots = container.querySelectorAll('[data-slot="input-otp-slot"]');
     const otpStyles = container.querySelector("style");
+    const containerRule = Array.from(otpStyles?.sheet?.cssRules ?? []).find(
+      (rule): rule is CSSContainerRule => rule instanceof CSSContainerRule,
+    );
+    const responsiveSlotRule = Array.from(containerRule?.cssRules ?? []).find(
+      (rule): rule is CSSStyleRule =>
+        rule instanceof CSSStyleRule &&
+        rule.selectorText ===
+          '[data-slot="input-otp"] > [data-input-otp-container]',
+    );
 
     expect(otp).not.toBeNull();
     expect(otp?.classList).toContain("w-full");
     expect(otp?.style.containerType).toBe("inline-size");
     expect(slots).toHaveLength(6);
-    expect(otpStyles?.textContent).toContain("--input-otp-slot-width");
+    expect(containerRule?.conditionText).toBe("(max-width: 24rem)");
+    expect(
+      responsiveSlotRule?.style.getPropertyValue("--input-otp-slot-width"),
+    ).toContain("100cqw");
+    expect(
+      responsiveSlotRule?.style.getPropertyValue("--input-otp-slot-width"),
+    ).toContain("var(--input-otp-slot-count)");
   });
 
   it("derives slot sizing from configurable OTP length", () => {
     const { container } = render(
-      <InputOTP maxLength={4}>
+      <InputOTP maxLength={4} data-invalid={false} data-shaking={false}>
         <InputOTPGroup>
           <InputOTPSlot index={0} />
           <InputOTPSlot index={1} />
@@ -91,6 +106,8 @@ describe("LoginForm narrow OTP layout", () => {
     const hiddenInput = container.querySelector('[data-input-otp]');
 
     expect(otp?.style.getPropertyValue("--input-otp-slot-count")).toBe("4");
+    expect(otp?.hasAttribute("data-invalid")).toBe(false);
+    expect(otp?.hasAttribute("data-shaking")).toBe(false);
     expect(slots).toHaveLength(4);
     expect(hiddenInput?.getAttribute("data-slot")).toBeNull();
   });

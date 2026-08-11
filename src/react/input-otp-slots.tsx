@@ -87,11 +87,11 @@ export function InputOTP({
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: OTP_STYLES }} />
+      <style>{OTP_STYLES}</style>
       <div
         data-slot="input-otp"
-        data-invalid={dataInvalid}
-        data-shaking={dataShaking}
+        data-invalid={dataInvalid ? true : undefined}
+        data-shaking={dataShaking ? true : undefined}
         className="w-full"
         style={containerStyle}
       >
@@ -206,7 +206,7 @@ export function InputOTPSeparator({
   return (
     <div
       data-slot="input-otp-separator"
-      role="separator"
+      aria-hidden="true"
       style={{
         display: "flex",
         alignItems: "center",
