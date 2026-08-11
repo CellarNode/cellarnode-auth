@@ -1,0 +1,22 @@
+__tests__/reduced-motion.test.tsx
+  s_a9186c53cb5e06::t_44a6a907db1180 28
+  s_a9186c53cb5e06::t_7464bf8c9efe3b 16-27
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_c509dd613f17f8 17,29,47,67-71,87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a26a276fbeb5fea2e840511827d1164448c74137",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
