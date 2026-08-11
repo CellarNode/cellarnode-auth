@@ -34,7 +34,10 @@ const OTP_STYLES = `
   [data-slot="input-otp-root"] > [data-input-otp-container] {
     --input-otp-slot-width: min(
       52px,
-      calc((100cqw - 24px) / var(--input-otp-slot-count))
+      calc(
+        (100cqw - var(--input-otp-separator-budget)) /
+          var(--input-otp-slot-count)
+      )
     );
     --input-otp-separator-width: 24px;
   }
@@ -74,10 +77,15 @@ export function InputOTP({
   "data-shaking": dataShaking,
   ...props
 }: InputOTPProps) {
+  const separatorCount = countOtpSeparators(props.children);
   const containerStyle = {
     containerType: "inline-size",
     "--input-otp-slot-count": props.maxLength ?? 6,
-  } satisfies React.CSSProperties & { "--input-otp-slot-count": number };
+    "--input-otp-separator-budget": `${separatorCount * 24}px`,
+  } satisfies React.CSSProperties & {
+    "--input-otp-slot-count": number;
+    "--input-otp-separator-budget": string;
+  };
 
   return (
     <>
@@ -229,4 +237,16 @@ export function InputOTPSeparator({
       <Minus style={{ width: "20px", height: "20px" }} />
     </div>
   );
+}
+
+function countOtpSeparators(children: React.ReactNode): number {
+  return React.Children.toArray(children).reduce<number>((count, child) => {
+    if (!React.isValidElement<{ children?: React.ReactNode }>(child)) {
+      return count;
+    }
+    if (child.type === InputOTPSeparator) {
+      return count + 1;
+    }
+    return count + countOtpSeparators(child.props.children);
+  }, 0);
 }
