@@ -64,7 +64,7 @@ export function RegisterForm({
 
   if (success) {
     return (
-      <div className="rounded-xl border border-border bg-card shadow-sm">
+      <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
         <div className="p-6 text-center">
           <h2 className="text-2xl font-semibold">Check your email</h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -74,6 +74,7 @@ export function RegisterForm({
         </div>
         <div className="px-6 pb-6">
           <button
+            type="button"
             onClick={onNavigateLogin}
             className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90 transition-colors"
           >
@@ -85,7 +86,7 @@ export function RegisterForm({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card shadow-sm">
+    <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
       <div className="p-6 text-center">
         <h2 className="text-2xl font-semibold">Create an account</h2>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -109,7 +110,6 @@ export function RegisterForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              autoFocus
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>

@@ -233,7 +233,7 @@ export function LoginForm({
   }
 
   return (
-    <div className="grid min-h-dvh lg:grid-cols-2">
+    <div className="grid min-h-dvh bg-background text-foreground lg:grid-cols-2">
       {/* Left: Form Panel */}
       <div className="flex flex-col px-6 py-6 sm:px-10 sm:py-8 lg:px-14 lg:py-10">
         {/* Top bar */}
@@ -317,7 +317,6 @@ export function LoginForm({
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       required
-                      autoFocus
                       aria-invalid={!!error || undefined}
                       className={clsx(
                         "flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 transition-colors",
@@ -373,7 +372,6 @@ export function LoginForm({
                       }}
                       maxLength={6}
                       pattern={REGEXP_ONLY_DIGITS}
-                      autoFocus
                       data-invalid={!!error || undefined}
                       data-shaking={isShaking || undefined}
                       containerClassName="justify-center"

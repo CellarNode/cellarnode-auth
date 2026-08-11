@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.1
+
+### Fixed
+- React login, registration, and unauthorized surfaces now pair semantic backgrounds with matching foreground colors in light and dark themes.
+
 ## 0.9.0
 
 ### Added

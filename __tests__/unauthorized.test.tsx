@@ -13,6 +13,18 @@ const dashboardLinks = [
 ];
 
 describe("UnauthorizedPage labels (CEL-918)", () => {
+  it("owns semantic page and card color pairs", () => {
+    // Given: the generic shared unauthorized surface.
+    // When: it renders without consumer-level color classes.
+    const html = renderToStaticMarkup(
+      <UnauthorizedPage expectedRole="producers" onNavigateLogin={noop} />,
+    );
+
+    // Then: page and card foregrounds remain paired with their semantic surfaces.
+    expect(html).toContain("bg-background text-foreground");
+    expect(html).toContain("bg-card p-8 text-center text-card-foreground");
+  });
+
   it("renders English defaults on the access-denied view", () => {
     const html = renderToStaticMarkup(
       <UnauthorizedPage expectedRole="producers" onNavigateLogin={noop} />,

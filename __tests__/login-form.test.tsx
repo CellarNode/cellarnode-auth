@@ -47,6 +47,17 @@ function renderEmailStep(extraProps: Record<string, unknown> = {}) {
 }
 
 describe("LoginForm anti-enumeration (CEL-964)", () => {
+  it("owns a semantic background and foreground at its page boundary", () => {
+    // Given: a consumer rendering the shared full-page login surface.
+    // When: the email step is rendered.
+    const html = renderEmailStep();
+
+    // Then: theme-aware text always has a matching theme-aware surface.
+    expect(html).toContain(
+      'class="grid min-h-dvh bg-background text-foreground lg:grid-cols-2"',
+    );
+  });
+
   it("shows a create-account affordance unconditionally on the email step", () => {
     const html = renderEmailStep();
 

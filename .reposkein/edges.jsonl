@@ -14,6 +14,7 @@
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-guard.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx"}
+{"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:src","type":"CONTAINS","to":"rs1:7dc1dbe8d512:dir:src/react"}
 {"from":"rs1:7dc1dbe8d512:dir:src","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:src/auth-api.ts"}
@@ -50,6 +51,10 @@
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form.test.tsx#authApi"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form.test.tsx#authStore"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/login-form.tsx","symbols":["LoginForm","otpSentNotice"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/register-form.test.tsx#noop@0"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/register-form.test.tsx#authApi"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/register-form.tsx","symbols":["RegisterForm"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthApi"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/unauthorized.test.tsx#noop@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/unauthorized.test.tsx#dashboardLinks"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/unauthorized.tsx","symbols":["UnauthorizedPage"]}

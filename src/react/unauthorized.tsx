@@ -60,8 +60,8 @@ export function UnauthorizedPage({
   // Portal-aware view: user is authenticated but on the wrong dashboard
   if (matchingLink) {
     return (
-      <div className="flex min-h-dvh items-center justify-center p-4">
-        <div className="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+      <div className="flex min-h-dvh items-center justify-center bg-background text-foreground p-4">
+        <div className="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-8 text-center text-card-foreground shadow-sm">
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-amber-500/10">
             <ArrowLeftRight className="size-6 text-amber-600" />
           </div>
@@ -89,6 +89,7 @@ export function UnauthorizedPage({
             <ExternalLink className="size-4" />
           </a>
           <button
+            type="button"
             onClick={onNavigateLogin}
             className="mt-3 text-sm text-primary transition-colors hover:text-primary/80"
           >
@@ -101,8 +102,8 @@ export function UnauthorizedPage({
 
   // Fallback: generic access denied (backward compat + admin userType + no props)
   return (
-    <div className="flex min-h-dvh items-center justify-center p-4">
-      <div className="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+    <div className="flex min-h-dvh items-center justify-center bg-background text-foreground p-4">
+      <div className="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-8 text-center text-card-foreground shadow-sm">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10">
           <ShieldX className="size-6 text-destructive" />
         </div>
@@ -118,6 +119,7 @@ export function UnauthorizedPage({
           )}
         </p>
         <button
+          type="button"
           onClick={onNavigateLogin}
           className="mt-6 inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90 transition-colors"
         >
