@@ -1,0 +1,32 @@
+__tests__/login-form.test.tsx
+  s_a9186c53cb5e06::t_1c7334c6f5e654 4,57-58
+__tests__/unauthorized.test.tsx
+  s_a9186c53cb5e06::t_1c7334c6f5e654 4,25-51
+__tests__/class-tokens.ts
+  s_a9186c53cb5e06::t_5e11a8476e9890 2-3,5-9
+  s_a9186c53cb5e06::t_1c7334c6f5e654 1,4,10
+__tests__/register-form.test.tsx
+  s_a9186c53cb5e06::t_1c7334c6f5e654 5,51-53
+src/react/register-form.tsx
+  s_a9186c53cb5e06::t_384aa69cbdaf5e 4,16-23,76,93,98,178
+.reposkein/edges.jsonl
+  s_a9186c53cb5e06::t_ff8f02c4cb350e 16,50,55,59,64,105
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_8d129fb2338a59 14-17,29,42-46,75-77,84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "8f88080acbc09fee1d2261956f30574a52f43918",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
