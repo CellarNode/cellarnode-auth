@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { clsx } from "clsx";
@@ -8,6 +8,22 @@ import { clsx } from "clsx";
 export interface SquircleShiftProps {
   theme?: "light" | "dark";
   className?: string;
+}
+
+function useMotionEnabled(): boolean {
+  const [isMotionEnabled, setIsMotionEnabled] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updateMotionPreference = () => setIsMotionEnabled(!mediaQuery.matches);
+
+    updateMotionPreference();
+    mediaQuery.addEventListener("change", updateMotionPreference);
+
+    return () => mediaQuery.removeEventListener("change", updateMotionPreference);
+  }, []);
+
+  return isMotionEnabled;
 }
 
 const vertexShader = /* glsl */ `
@@ -99,6 +115,7 @@ void main() {
 `;
 
 interface ShaderPlaneProps {
+  isMotionEnabled: boolean;
   speed: number;
   colorLayers: number;
   gridFrequency: number;
@@ -117,6 +134,7 @@ interface ShaderPlaneProps {
 }
 
 function ShaderPlane({
+  isMotionEnabled,
   speed,
   colorLayers,
   gridFrequency,
@@ -165,7 +183,9 @@ function ShaderPlane({
 
   useFrame((state) => {
     if (materialRef.current) {
-      materialRef.current.uniforms.u_time.value = state.clock.elapsedTime;
+      materialRef.current.uniforms.u_time.value = isMotionEnabled
+        ? state.clock.elapsedTime
+        : 0;
       materialRef.current.uniforms.u_resolution.value.set(
         viewport.width * 100,
         viewport.height * 100,
@@ -205,6 +225,7 @@ export const SquircleShift: React.FC<SquircleShiftProps> = ({
   theme = "light",
   className,
 }) => {
+  const isMotionEnabled = useMotionEnabled();
   const bgColor = theme === "dark" ? "#101715" : "#f6f3ec";
 
   return (
@@ -216,8 +237,10 @@ export const SquircleShift: React.FC<SquircleShiftProps> = ({
         className="absolute inset-0 size-full"
         gl={{ antialias: true, alpha: false }}
         camera={{ position: [0, 0, 1], fov: 75 }}
+        frameloop={isMotionEnabled ? "always" : "demand"}
       >
         <ShaderPlane
+          isMotionEnabled={isMotionEnabled}
           speed={0.3}
           colorLayers={3}
           gridFrequency={25}
