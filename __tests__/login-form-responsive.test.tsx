@@ -120,4 +120,28 @@ describe("LoginForm narrow OTP layout", () => {
 
     expect(getByRole("separator")).toBeTruthy();
   });
+
+  it("marks invalid slots with a cascade-safe destructive border", () => {
+    const { container } = render(
+      <InputOTP maxLength={4} value="1" data-invalid>
+        <InputOTPGroup>
+          <InputOTPSlot index={0} />
+          <InputOTPSlot index={1} />
+          <InputOTPSlot index={2} />
+          <InputOTPSlot index={3} />
+        </InputOTPGroup>
+      </InputOTP>,
+    );
+
+    const root = container.querySelector('[data-slot="input-otp-root"]');
+    const otpStyles = container.querySelector("style")?.textContent ?? "";
+    const invalidRule = otpStyles.match(
+      /\[data-slot="input-otp-root"\]\[data-invalid\] \[data-slot="input-otp-slot"\] \{[^}]+\}/,
+    )?.[0];
+
+    expect(root?.hasAttribute("data-invalid")).toBe(true);
+    expect(invalidRule).toContain(
+      "border-color: var(--destructive, #ef4444) !important",
+    );
+  });
 });

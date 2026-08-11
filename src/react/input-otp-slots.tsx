@@ -57,7 +57,7 @@ const OTP_STYLES = `
     margin-left: 0;
   }
   [data-slot="input-otp-root"][data-invalid] [data-slot="input-otp-slot"] {
-    border-color: var(--destructive, #ef4444);
+    border-color: var(--destructive, #ef4444) !important;
   }
   [data-slot="input-otp-root"][data-invalid] [data-slot="input-otp-slot"][data-active] {
     border-color: var(--destructive, #ef4444) !important;
