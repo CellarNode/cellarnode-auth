@@ -7,6 +7,8 @@ import { Minus } from "lucide-react";
 
 export type InputOTPProps = React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string;
+  "data-invalid"?: boolean;
+  "data-shaking"?: boolean;
 };
 
 const OTP_STYLES = `
@@ -26,6 +28,19 @@ const OTP_STYLES = `
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"] {
     border-left-width: 0;
   }
+  [data-slot="input-otp-slot"] {
+    width: var(--input-otp-slot-width, 52px);
+  }
+  [data-slot="input-otp-root"] > [data-input-otp-container] {
+    --input-otp-slot-width: min(
+      52px,
+      calc(
+        (100cqw - var(--input-otp-separator-budget)) /
+          var(--input-otp-slot-count)
+      )
+    );
+    --input-otp-separator-width: 24px;
+  }
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"]:first-child {
     border-left-width: 2px;
     border-top-left-radius: 12px;
@@ -44,30 +59,55 @@ const OTP_STYLES = `
   [data-slot="input-otp-group"] > [data-slot="input-otp-slot"][data-active]:first-child {
     margin-left: 0;
   }
-  [data-slot="input-otp"][data-invalid] [data-slot="input-otp-slot"] {
-    border-color: var(--destructive, #ef4444);
+  [data-slot="input-otp-root"][data-invalid] [data-slot="input-otp-slot"] {
+    border-color: var(--destructive, #ef4444) !important;
   }
-  [data-slot="input-otp"][data-invalid] [data-slot="input-otp-slot"][data-active] {
+  [data-slot="input-otp-root"][data-invalid] [data-slot="input-otp-slot"][data-active] {
     border-color: var(--destructive, #ef4444) !important;
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive, #ef4444) 20%, transparent), 0 1px 2px 0 rgba(0,0,0,0.05);
   }
-  [data-slot="input-otp"][data-shaking] {
+  [data-slot="input-otp-root"][data-shaking] {
     animation: otpShake 0.4s ease;
   }
 `;
 
-export function InputOTP({ containerClassName, ...props }: InputOTPProps) {
+export function InputOTP({
+  containerClassName,
+  "data-invalid": dataInvalid,
+  "data-shaking": dataShaking,
+  ...props
+}: InputOTPProps) {
+  const separatorCount = countOtpSeparators(props.children);
+  const containerStyle = {
+    containerType: "inline-size",
+    "--input-otp-slot-count": props.maxLength ?? 6,
+    "--input-otp-separator-budget": `${separatorCount * 24}px`,
+  } satisfies React.CSSProperties & {
+    "--input-otp-slot-count": number;
+    "--input-otp-separator-budget": string;
+  };
+
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: OTP_STYLES }} />
-      <OTPInput
-        data-slot="input-otp"
-        containerClassName={clsx(
-          "flex items-center has-disabled:opacity-50",
-          containerClassName,
-        )}
-        {...props}
-      />
+      <style>{OTP_STYLES}</style>
+      <div
+        data-slot="input-otp-root"
+        data-invalid={dataInvalid ? true : undefined}
+        data-shaking={dataShaking ? true : undefined}
+        className="w-full"
+        style={containerStyle}
+      >
+        <OTPInput
+          data-slot="input-otp"
+          data-invalid={dataInvalid ? true : undefined}
+          data-shaking={dataShaking ? true : undefined}
+          containerClassName={clsx(
+            "flex w-full items-center has-disabled:opacity-50",
+            containerClassName,
+          )}
+          {...props}
+        />
+      </div>
     </>
   );
 }
@@ -107,7 +147,6 @@ export function InputOTPSlot({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "52px",
         height: "60px",
         fontSize: "24px",
         fontWeight: 600,
@@ -172,18 +211,42 @@ export function InputOTPSeparator({
   return (
     <div
       data-slot="input-otp-separator"
-      role="separator"
       style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "24px",
+        width: "var(--input-otp-separator-width, 24px)",
         color: "var(--muted-foreground, #94a3b8)",
         ...style,
       }}
       {...props}
     >
+      <hr
+        style={{
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          padding: 0,
+          margin: "-1px",
+          overflow: "hidden",
+          clip: "rect(0, 0, 0, 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      />
       <Minus style={{ width: "20px", height: "20px" }} />
     </div>
   );
+}
+
+function countOtpSeparators(children: React.ReactNode): number {
+  return React.Children.toArray(children).reduce<number>((count, child) => {
+    if (!React.isValidElement<{ children?: React.ReactNode }>(child)) {
+      return count;
+    }
+    if (child.type === InputOTPSeparator) {
+      return count + 1;
+    }
+    return count + countOtpSeparators(child.props.children);
+  }, 0);
 }

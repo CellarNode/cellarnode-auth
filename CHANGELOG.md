@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.2
+
+### Fixed
+- React OTP inputs now keep configurable 4, 6, and 8-digit layouts within narrow screens without horizontal overflow.
+- OTP selector and separator semantics remain compatible with existing consumers.
+
 ## 0.13.1
 
 ### Fixed

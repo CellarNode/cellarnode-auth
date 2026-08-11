@@ -1,6 +1,6 @@
 {
   "name": "@cellarnode/auth",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "Shared OTP-based authentication — token store, API client, React UI components for CellarNode dashboards.",
   "license": "MIT",
   "type": "module",
@@ -36,7 +36,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "check-exports": "npx publint && npx @arethetypeswrong/cli --pack .",
+    "check-exports": "npx publint && npx @arethetypeswrong/cli --pack . --profile esm-only",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
