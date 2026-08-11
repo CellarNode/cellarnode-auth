@@ -13,6 +13,19 @@ vi.mock("@react-three/fiber", () => ({
   useThree: vi.fn(),
 }));
 
+vi.mock("input-otp", async () => {
+  const ReactModule = await import("react");
+
+  return {
+    OTPInput: ({ "data-shaking": dataShaking }: { readonly "data-shaking"?: boolean }) =>
+      ReactModule.createElement("div", {
+        "data-slot": "input-otp",
+        "data-shaking": dataShaking || undefined,
+      }),
+    OTPInputContext: ReactModule.createContext({ slots: [] }),
+  };
+});
+
 interface MatchMediaController {
   install(): void;
   setMatches(matches: boolean): void;
