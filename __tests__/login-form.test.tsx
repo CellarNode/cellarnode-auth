@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LoginForm, otpSentNotice } from "../src/react/login-form.js";
+import { classTokensAt } from "./class-tokens.js";
 
 // CEL-964: the login form must not leak whether an account exists. The old
 // USER_NOT_FOUND branch (which showed "No account found" + a create-account CTA
@@ -53,8 +54,8 @@ describe("LoginForm anti-enumeration (CEL-964)", () => {
     const html = renderEmailStep();
 
     // Then: theme-aware text always has a matching theme-aware surface.
-    expect(html).toContain(
-      'class="grid min-h-dvh bg-background text-foreground lg:grid-cols-2"',
+    expect(classTokensAt(html, 0)).toEqual(
+      expect.arrayContaining(["bg-background", "text-foreground"]),
     );
   });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { AuthApi } from "../types.js";
 import { AuthError } from "../types.js";
 import { Loader2 } from "lucide-react";
@@ -10,6 +11,14 @@ export interface RegisterFormProps {
   onRegistered: () => void;
   onNavigateLogin: () => void;
   authApi: AuthApi;
+}
+
+function RegisterCard({ children }: { readonly children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+      {children}
+    </div>
+  );
 }
 
 export function RegisterForm({
@@ -64,7 +73,7 @@ export function RegisterForm({
 
   if (success) {
     return (
-      <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+      <RegisterCard>
         <div className="p-6 text-center">
           <h2 className="text-2xl font-semibold">Check your email</h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -81,12 +90,12 @@ export function RegisterForm({
             Go to Login
           </button>
         </div>
-      </div>
+      </RegisterCard>
     );
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+    <RegisterCard>
       <div className="p-6 text-center">
         <h2 className="text-2xl font-semibold">Create an account</h2>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -166,6 +175,6 @@ export function RegisterForm({
           </button>
         </form>
       </div>
-    </div>
+    </RegisterCard>
   );
 }

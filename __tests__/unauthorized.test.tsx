@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { UnauthorizedPage } from "../src/react/unauthorized.js";
+import { classTokensAt } from "./class-tokens.js";
 
 // CEL-918: every rendered string must be overridable via the `labels` prop so
 // consumers can localize; omitted fields keep their English defaults. Static
@@ -21,8 +22,33 @@ describe("UnauthorizedPage labels (CEL-918)", () => {
     );
 
     // Then: page and card foregrounds remain paired with their semantic surfaces.
-    expect(html).toContain("bg-background text-foreground");
-    expect(html).toContain("bg-card p-8 text-center text-card-foreground");
+    expect(classTokensAt(html, 0)).toEqual(
+      expect.arrayContaining(["bg-background", "text-foreground"]),
+    );
+    expect(classTokensAt(html, 1)).toEqual(
+      expect.arrayContaining(["bg-card", "text-card-foreground"]),
+    );
+  });
+
+  it("owns semantic page and card color pairs on the portal-aware view", () => {
+    // Given: an authenticated user viewing a dashboard for another role.
+    // When: the portal-aware unauthorized state renders.
+    const html = renderToStaticMarkup(
+      <UnauthorizedPage
+        expectedRole="producers"
+        onNavigateLogin={noop}
+        authenticatedUserType="importer"
+        dashboardLinks={dashboardLinks}
+      />,
+    );
+
+    // Then: each semantic foreground remains on its matching surface element.
+    expect(classTokensAt(html, 0)).toEqual(
+      expect.arrayContaining(["bg-background", "text-foreground"]),
+    );
+    expect(classTokensAt(html, 1)).toEqual(
+      expect.arrayContaining(["bg-card", "text-card-foreground"]),
+    );
   });
 
   it("renders English defaults on the access-denied view", () => {

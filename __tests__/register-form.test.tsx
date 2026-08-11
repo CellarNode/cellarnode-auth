@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RegisterForm } from "../src/react/register-form.js";
 import type { AuthApi } from "../src/types.js";
+import { classTokensAt } from "./class-tokens.js";
 
 const noop = () => {};
 
@@ -47,6 +48,8 @@ describe("RegisterForm theme surfaces", () => {
     );
 
     // Then: dark and light theme tokens resolve as a coherent pair.
-    expect(html).toContain("bg-card text-card-foreground");
+    expect(classTokensAt(html, 0)).toEqual(
+      expect.arrayContaining(["bg-card", "text-card-foreground"]),
+    );
   });
 });

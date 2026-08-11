@@ -13,6 +13,7 @@
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-client.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-guard.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts"}
+{"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx"}
@@ -46,17 +47,21 @@
 {"from":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/auth-store.test.ts#baseMe"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/auth-store.ts","symbols":["createAuthStore"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthUser"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/class-tokens.ts#classTokensAt@2"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/login-form.test.tsx#noop@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/login-form.test.tsx#renderEmailStep@1"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form.test.tsx#authApi"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form.test.tsx#authStore"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","symbols":["classTokensAt"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/login-form.tsx","symbols":["LoginForm","otpSentNotice"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/register-form.test.tsx#noop@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/register-form.test.tsx#authApi"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","symbols":["classTokensAt"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/register-form.tsx","symbols":["RegisterForm"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthApi"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/unauthorized.test.tsx#noop@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/unauthorized.test.tsx#dashboardLinks"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","symbols":["classTokensAt"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/unauthorized.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/unauthorized.tsx","symbols":["UnauthorizedPage"]}
 {"from":"rs1:7dc1dbe8d512:file:src/auth-api.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/auth-api.ts#createAuthApi@1"}
 {"from":"rs1:7dc1dbe8d512:file:src/auth-api.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/extract-token.ts","symbols":["extractAccessToken"]}
@@ -97,6 +102,7 @@
 {"from":"rs1:7dc1dbe8d512:file:src/react/login-form.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:src/react/login-form.tsx#LazySquircleShift"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/login-form.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/input-otp-slots.tsx","symbols":["InputOTP","InputOTPGroup","InputOTPSeparator","InputOTPSlot"]}
 {"from":"rs1:7dc1dbe8d512:file:src/react/login-form.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthApi","AuthError","AuthStore"]}
+{"from":"rs1:7dc1dbe8d512:file:src/react/register-form.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/register-form.tsx#RegisterCard@1"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/register-form.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:src/react/register-form.tsx#RegisterForm@1"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/register-form.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:iface:src/react/register-form.tsx#RegisterFormProps"}
 {"from":"rs1:7dc1dbe8d512:file:src/react/register-form.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthApi","AuthError"]}
