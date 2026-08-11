@@ -14,6 +14,7 @@
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-guard.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts"}
+{"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/login-form-responsive.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/reduced-motion.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/register-form.test.tsx"}
@@ -49,6 +50,11 @@
 {"from":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/auth-store.ts","symbols":["createAuthStore"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthUser"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/class-tokens.ts#classTokensAt@2"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/login-form-responsive.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form-responsive.test.tsx#authApi"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/login-form-responsive.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form-responsive.test.tsx#authStore"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/login-form-responsive.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/input-otp-slots.tsx","symbols":["InputOTP","InputOTPGroup","InputOTPSlot"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/login-form-responsive.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/react/login-form.tsx","symbols":["LoginForm"]}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/login-form-responsive.test.tsx","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthApi","AuthStore"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/login-form.test.tsx#noop@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/login-form.test.tsx#renderEmailStep@1"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/login-form.test.tsx","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/login-form.test.tsx#authApi"}

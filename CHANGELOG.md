@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.2
+
+### Fixed
+- React OTP inputs now stay within narrow screens without horizontal overflow.
+
 ## 0.13.1
 
 ### Fixed
