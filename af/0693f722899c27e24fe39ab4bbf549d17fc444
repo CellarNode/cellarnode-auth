@@ -1,0 +1,27 @@
+src/react/input-otp-slots.tsx
+  s_a9186c53cb5e06::t_4289b192016e22 40-44,83-87,96
+__tests__/login-form-responsive.test.tsx
+  s_a9186c53cb5e06::t_4289b192016e22 3-7,76-90,92-94
+  s_a9186c53cb5e06::t_052a76f3dd5c2d 91,95
+  s_a9186c53cb5e06::t_f8a90d2f6cfc94 96
+.reposkein/edges.jsonl
+  s_a9186c53cb5e06::t_99bf762f982be6 54
+.reposkein/nodes.jsonl
+  s_a9186c53cb5e06::t_2de904bfcf0fce 15,28,65-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "af0693f722899c27e24fe39ab4bbf549d17fc444",
+  "prompts": {},
+  "sessions": {
+    "s_a9186c53cb5e06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00f-835b-7aa2-ba24-681cbd1dfcf6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
