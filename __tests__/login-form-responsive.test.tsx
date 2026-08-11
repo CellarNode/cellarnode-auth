@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoginForm } from "../src/react/login-form.js";
 import type { AuthApi, AuthStore } from "../src/types.js";
 
@@ -28,11 +28,19 @@ const authStore = {
   clearAccessToken: () => {},
 } satisfies Pick<AuthStore, "setAccessToken" | "clearAccessToken">;
 
-afterEach(cleanup);
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.runOnlyPendingTimers();
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("LoginForm narrow OTP layout", () => {
   it("renders six OTP targets inside a responsive full-width container", async () => {
-    const { container, findByRole, getByLabelText, getByRole } = render(
+    const { container, getByLabelText, getByRole } = render(
       <LoginForm
         userType="importer"
         brandName="CellarNode"
@@ -47,7 +55,9 @@ describe("LoginForm narrow OTP layout", () => {
     });
     fireEvent.click(getByRole("button", { name: "Continue" }));
 
-    await findByRole("heading", { name: "Check your email" });
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    expect(getByRole("heading", { name: "Check your email" })).toBeTruthy();
     const otp = container.querySelector<HTMLElement>('[data-slot="input-otp"]');
     const slots = container.querySelectorAll('[data-slot="input-otp-slot"]');
     const otpStyles = container.querySelector("style");
