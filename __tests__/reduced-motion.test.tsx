@@ -89,7 +89,7 @@ describe("reduced-motion feedback (CEL-1395)", () => {
     expect(matchMediaController.listenerCount()).toBe(0);
   });
 
-  it("emits reduced-motion OTP rules from the mounted component", () => {
+  it("disables OTP root animation when motion is reduced", () => {
     // Given: the shared OTP input supplies its keyframe styles.
     const { container } = render(<InputOTP data-shaking maxLength={6} />);
 
@@ -100,8 +100,9 @@ describe("reduced-motion feedback (CEL-1395)", () => {
     );
     const otpInput = container.querySelector("[data-slot='input-otp']");
 
-    // Then: every OTP descendant has its animation and transition feedback disabled.
+    // Then: root shake plus every OTP descendant have animation and transition feedback disabled.
     expect(otpInput?.hasAttribute("data-shaking")).toBe(true);
+    expect(reducedMotionRule?.cssText).toContain('[data-slot="input-otp-root"]');
     expect(reducedMotionRule?.cssText).toContain("animation: none !important;");
     expect(reducedMotionRule?.cssText).toContain("transition: none !important;");
   });

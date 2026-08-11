@@ -67,6 +67,7 @@ const OTP_STYLES = `
     animation: otpShake 0.4s ease;
   }
   @media (prefers-reduced-motion: reduce) {
+    [data-slot="input-otp-root"],
     [data-slot="input-otp"],
     [data-slot="input-otp"] * {
       animation: none !important;
