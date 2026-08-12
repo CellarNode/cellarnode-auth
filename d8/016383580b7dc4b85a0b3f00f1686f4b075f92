@@ -1,0 +1,70 @@
+src/auth-store.ts
+  s_c0bc7786cb54ab::t_5e3bc9527c90fd 6
+  s_c0bc7786cb54ab::t_5c55cf71b237da 312-410
+  s_c0bc7786cb54ab::t_43c6dae1f2cfb9 49-73
+src/react/index.ts
+  s_c0bc7786cb54ab::t_3533dfd9693d2f 4-10
+src/import-meta-env.d.ts
+  s_c0bc7786cb54ab::t_0c7e72effc4a2d 1-23
+src/types.ts
+  s_c0bc7786cb54ab::t_1fbff60b8349cb 145-167
+  s_c0bc7786cb54ab::t_c207f339f52377 96-132
+  s_405683276cc46a::t_80a01ebeb3fc27 144
+src/react/login-form.tsx
+  s_c0bc7786cb54ab::t_3505f0550905e8 22-26
+  s_c0bc7786cb54ab::t_2e6def9e941427 236-244,246-290
+  s_c0bc7786cb54ab::t_a5aaa144f6efad 114-126
+  s_c0bc7786cb54ab::t_f9c4557a8d3bc8 512-526
+  s_c0bc7786cb54ab::t_7cc2bf76c532ab 291
+src/index.ts
+  s_c0bc7786cb54ab::t_72e3206cce9013 19-22
+AGENTS.md
+  s_c0bc7786cb54ab::t_3a7d3c913a4a95 103
+  s_c0bc7786cb54ab::t_13a3f79cd86f8c 39
+  s_c0bc7786cb54ab::t_82a101510a942a 55,58-81
+  s_c0bc7786cb54ab::t_7ae043677ef043 82
+__tests__/dev-login.test.ts
+  s_c0bc7786cb54ab::t_43733dfd6e1252 1-240
+__tests__/login-form-dev-bypass.test.tsx
+  s_c0bc7786cb54ab::t_58b0117deca375 1-261
+README.md
+  s_c0bc7786cb54ab::t_8f5042aac17127 37-51,53-59
+  s_c0bc7786cb54ab::t_1e3ce6997e1a73 60
+src/react/dev-sign-in.tsx
+  s_c0bc7786cb54ab::t_a1c43fb4b988b8 3
+  s_c0bc7786cb54ab::t_64e39175a4624e 1-2,4-122
+CHANGELOG.md
+  s_c0bc7786cb54ab::t_0dc8c835350c93 3-9
+.reposkein/edges.jsonl
+  s_c0bc7786cb54ab::t_7e847406b77b92 17-18,30,33,57-68,105-106,108,110-111,117-123,142,169-170,197,203
+.reposkein/nodes.jsonl
+  s_c0bc7786cb54ab::t_80895acc0c0ebd 6-7,9,15-16,22-23,27,29-32,34,38,49-53,64-74,76-78,84-91,101-105,111-113,115,118-120,127-128,136-138
+package-lock.json
+  s_c0bc7786cb54ab::t_1378a8d7ed43d3 3,9
+package.json
+  s_c0bc7786cb54ab::t_8d880e335bda59 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d8016383580b7dc4b85a0b3f00f1686f4b075f92",
+  "prompts": {},
+  "sessions": {
+    "s_405683276cc46a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff53b-5641-7311-bd73-f70ebfd32dea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    },
+    "s_c0bc7786cb54ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae79a903-6262-4a77-aaeb-f9e596b75ddc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
