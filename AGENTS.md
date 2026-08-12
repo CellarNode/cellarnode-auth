@@ -36,7 +36,7 @@ Always `make build` before opening a PR or publishing.
 
 ### Core API
 
-- `createAuthStore({ baseUrl })` — token persistence (localStorage in browser; mobile uses an `expo-secure-store` adapter on the consumer side).
+- `createAuthStore({ baseUrl })` — token persistence (localStorage in browser; mobile uses an `expo-secure-store` adapter on the consumer side). Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
 - `createAuthClient({ baseUrl, store, onAuthFailure })` — fetch wrapper, auto-attaches Bearer, calls `onAuthFailure` on 401.
 - `createAuthApi({ client, store })` — typed login/register/logout helpers.
 - `validateUserType(userType)` — `"producer" | "importer" | "distributor" | "admin"`.
@@ -52,8 +52,33 @@ src/
 ├── auth-store.ts       # Token storage abstraction
 ├── extract-token.ts    # JWT extraction helpers
 ├── types.ts            # AuthStore, AuthClient, UserType, ...
-└── react/              # LoginForm, RegisterForm, UnauthorizedPage, SquircleShift
+└── react/              # LoginForm, RegisterForm, UnauthorizedPage, SquircleShift, DevSignInBypass
 ```
+
+## Dev sign-in bypass (CEL-1364)
+
+`LoginForm` renders a "Dev sign-in (skip the code)" control **alongside** the
+email form, and `AuthStore.devLogin(email)` backs it by POSTing the backend's
+`POST /test/login` and adopting the returned JWE through `setAccessToken()` —
+the same adoption path `verifyOtp` uses (same identity fetch, same refresh
+scheduling, same listener fan-out).
+
+Rules that must not drift:
+
+- **Additive only.** The OTP flow is untouched, always rendered, never
+  auto-skipped, never auto-redirected. The OTP page stays testable.
+- **No new env vars.** The frontend gate is the literal `import.meta.env.DEV`
+  (Vite folds it to `false` in production, so Rollup drops the branch and
+  `src/react/dev-sign-in.tsx` with it). The backend gate stays
+  `ENABLE_TEST_ENDPOINTS`. Do not add a `VITE_*` flag.
+- **Anti-enumeration (backend T3-1).** `/test/login` returns the SAME 404 for
+  "gate off" and "no such account". `devLogin()` maps it to the single reason
+  `"test-endpoints-disabled"` and frames the copy as "set
+  `ENABLE_TEST_ENDPOINTS=true`" — never as a claim about the address.
+- `devLogin` is **optional** on the `AuthStore` interface so custom store
+  implementations stay source-compatible; `createAuthStore()` always provides it.
+- Optional prefill: `localStorage["cellarnode.dev.login-email"]`, read and
+  written only behind `import.meta.env.DEV`.
 
 ## Tailwind v4 content scan (consumer step)
 
@@ -75,5 +100,6 @@ OTP flow against backend V2 public API (port 4000):
 | POST | `/auth/refresh` | Rotate access token (replay-detection revokes session) |
 | POST | `/auth/logout` | Revoke session in Redis (`cellarnode:session:*`) |
 | GET | `/auth/me` | Current user; backend `authGuard()` accepts EITHER Bearer JWE (OTP path) OR cookie (admin BFF path). Cookie wins. |
+| POST | `/test/login` | LOCAL DEV ONLY (CEL-1364). Body `{ email }` → `{ accessToken, userId, orgId }` + the OTP flow's refresh cookies. 404s uniformly unless the API runs with `ENABLE_TEST_ENDPOINTS=true` outside production. |
 
 Session TTL defaults: access 15min, refresh 7d. See `cellarnode-backend-v2/AGENTS.md` for the full server-side schema.

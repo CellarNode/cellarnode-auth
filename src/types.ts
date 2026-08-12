@@ -93,6 +93,43 @@ export interface SessionClaims {
   entitlements: string[];
 }
 
+/**
+ * Why a `devLogin()` attempt did not produce a session (CEL-1364).
+ *
+ * ANTI-ENUMERATION CONTRACT (backend T3-1): `POST /test/login` returns the SAME
+ * 404 body whether the test-endpoint gate is off OR the address has no local
+ * account. The client therefore CANNOT tell those cases apart, and must not
+ * pretend it can — `"test-endpoints-disabled"` is client-side framing of "the
+ * gate is off", never "this email does not exist". Never derive account
+ * existence from this reason, and never surface it as such in UI copy.
+ */
+export type DevLoginFailureReason =
+  | "test-endpoints-disabled"
+  | "rate-limited"
+  | "forbidden"
+  | "network"
+  | "malformed-response"
+  | "unexpected";
+
+export interface DevLoginSuccess {
+  ok: true;
+  accessToken: string;
+  expiresIn: number;
+  userId: string | null;
+  orgId: string | null;
+}
+
+export interface DevLoginFailure {
+  ok: false;
+  reason: DevLoginFailureReason;
+  /** HTTP status, or null when the request never completed (network error). */
+  status: number | null;
+  /** Ready-to-render, developer-facing message. Safe for DEV-only UI. */
+  message: string;
+}
+
+export type DevLoginResult = DevLoginSuccess | DevLoginFailure;
+
 export type OrgChangeListener = (orgId: string | null) => void;
 export type AccessTokenSetListener = (token: string | null) => void;
 export type LogoutListener = () => void;
@@ -103,6 +140,30 @@ export interface AuthStore {
   setAccessToken(token: string, expiresIn: number): void;
   clearAccessToken(): void;
   ensureAccessToken(forceRefresh?: boolean): Promise<string | null>;
+
+  /**
+   * LOCAL-DEV ONLY — mint a session for `email` via the backend's
+   * `POST /test/login`, bypassing the OTP round-trip (CEL-1364).
+   *
+   * Adoption is the verify-otp path verbatim: the returned JWE goes through
+   * `setAccessToken()`, so identity resolution, the refresh timer, and the
+   * `onAccessTokenSet` / `onOrgChange` listeners all fire exactly as they do
+   * after a real OTP verification. The backend additionally sets the same
+   * refresh cookies as the OTP flow, so `/auth/refresh` works afterwards.
+   *
+   * Rejects nothing: every outcome is returned as a `DevLoginResult` so the
+   * DEV-only UI can render an actionable hint.
+   *
+   * SAFETY: this is a client of a server-gated route, not a gate of its own.
+   * The route only exists when the backend runs with `ENABLE_TEST_ENDPOINTS=true`
+   * outside production; otherwise it 404s and this resolves to
+   * `{ ok: false, reason: "test-endpoints-disabled" }`.
+   *
+   * Optional on the interface so custom `AuthStore` implementations (e.g. a
+   * mobile secure-store adapter) stay source-compatible. `createAuthStore()`
+   * always provides it.
+   */
+  devLogin?(email: string): Promise<DevLoginResult>;
 
   /**
    * userId of the current session, or null.

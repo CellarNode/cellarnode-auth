@@ -1,6 +1,13 @@
 "use client";
 
 export { LoginForm, type LoginFormProps } from "./login-form.js";
+export {
+  DevSignInBypass,
+  type DevSignInBypassProps,
+  DEV_LOGIN_EMAIL_STORAGE_KEY,
+  readDevLoginEmail,
+  rememberDevLoginEmail,
+} from "./dev-sign-in.js";
 export { RegisterForm, type RegisterFormProps } from "./register-form.js";
 export {
   UnauthorizedPage,

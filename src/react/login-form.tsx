@@ -19,6 +19,11 @@ import {
   InputOTPSeparator,
   InputOTPSlot,
 } from "./input-otp-slots.js";
+import {
+  DevSignInBypass,
+  readDevLoginEmail,
+  rememberDevLoginEmail,
+} from "./dev-sign-in.js";
 
 const LazySquircleShift = React.lazy(() =>
   import("./squircle-shift.js").then((m) => ({ default: m.SquircleShift })),
@@ -106,6 +111,19 @@ export function LoginForm({
   const [countdown, setCountdown] = useState("10:00");
   const [resendCountdown, setResendCountdown] = useState("01:00");
   const [isShaking, setIsShaking] = useState(false);
+  const [devError, setDevError] = useState("");
+  const [isDevSubmitting, setIsDevSubmitting] = useState(false);
+
+  // DEV-only email prefill (CEL-1364). Guarded INSIDE the effect so the hook
+  // itself stays unconditional; Vite folds `import.meta.env.DEV` to `false` in
+  // production, and Rollup then drops the body along with its imports.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (initialEmail) return;
+    const remembered = readDevLoginEmail();
+    if (!remembered) return;
+    setEmail((current) => (current.length > 0 ? current : remembered));
+  }, [initialEmail]);
 
   useEffect(() => {
     if (!expiresAt) return;
@@ -215,8 +233,62 @@ export function LoginForm({
     }
   }
 
-  async function handleResend() {
+  /**
+   * DEV-only bypass (CEL-1364): mint a session straight from `/test/login`.
+   *
+   * Never auto-runs — it fires only from the dev button's click. On success it
+   * applies the SAME portal guard the OTP path applies, so a producer address
+   * still can't land inside the importer portal (and vice versa).
+   */
+  async function handleDevLogin() {
+    if (!authStore.devLogin) return;
     setError("");
+    setDevError("");
+    setIsDevSubmitting(true);
+
+    try {
+      const result = await authStore.devLogin(normalizedEmail);
+
+      if (!result.ok) {
+        setDevError(result.message);
+        onError?.({
+          code: `DEV_LOGIN_${result.reason.replace(/-/g, "_").toUpperCase()}`,
+          message: result.message,
+        });
+        return;
+      }
+
+      // Portal guard, mirroring handleOtpSubmit. `/auth/me` is advisory here:
+      // if it fails we let the session stand rather than stranding a developer
+      // on a transient error.
+      let authenticatedUserType: string | null = null;
+      try {
+        const me = await authApi.getMe(result.accessToken);
+        authenticatedUserType = me?.userType ?? null;
+      } catch {
+        authenticatedUserType = null;
+      }
+
+      if (authenticatedUserType && authenticatedUserType !== userType) {
+        const msg = `This portal is for ${userType} accounts only.`;
+        authStore.clearAccessToken();
+        setDevError(msg);
+        onError?.({
+          code: "USER_TYPE_MISMATCH",
+          message: msg,
+          authenticatedUserType,
+        });
+        return;
+      }
+
+      rememberDevLoginEmail(normalizedEmail);
+      onLoginSuccess();
+    } finally {
+      setIsDevSubmitting(false);
+    }
+  }
+
+  async function handleResend() {    setError("");
     setIsSubmitting(true);
 
     try {
@@ -436,6 +508,21 @@ export function LoginForm({
                 </form>
               )}
             </div>
+
+            {/* DEV-only bypass (CEL-1364) — ADDITIVE. It sits beside the email
+                form on the same step; the OTP flow above is untouched and stays
+                the only path that exists in production builds. The literal
+                `import.meta.env.DEV` is what Vite folds to `false`, letting
+                Rollup drop this branch and the `./dev-sign-in.js` module. */}
+            {import.meta.env.DEV && step === "email" && authStore.devLogin && (
+              <DevSignInBypass
+                email={normalizedEmail}
+                isSubmitting={isDevSubmitting}
+                disabled={isSubmitting}
+                error={devError}
+                onDevSignIn={handleDevLogin}
+              />
+            )}
 
             {/* Footer — only on email step */}
             {step === "email" && (
