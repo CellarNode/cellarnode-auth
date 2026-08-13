@@ -67,10 +67,18 @@ Rules that must not drift:
 
 - **Additive only.** The OTP flow is untouched, always rendered, never
   auto-skipped, never auto-redirected. The OTP page stays testable.
+- **Fails closed.** The dev path resolves the user type through a separate
+  `GET /auth/me` (verify-otp gets it inline). If that call fails or answers
+  without a `userType`, the bypass clears the token and errors — an
+  unresolvable type is never treated as a passing portal check.
 - **No new env vars.** The frontend gate is the literal `import.meta.env.DEV`
-  (Vite folds it to `false` in production, so Rollup drops the branch and
-  `src/react/dev-sign-in.tsx` with it). The backend gate stays
-  `ENABLE_TEST_ENDPOINTS`. Do not add a `VITE_*` flag.
+  (Vite folds it to `false` in production, so Rollup drops the branch and the
+  `DevSignInBypass` component with it — pinned by
+  `__tests__/dev-bypass-treeshake.test.ts`, which bundles the form both ways
+  through esbuild and greps the output. Note the scope: only the component is
+  statically eliminated; `readDevLoginEmail` / `rememberDevLoginEmail` sit
+  behind runtime guards and survive as unreachable code). The backend gate
+  stays `ENABLE_TEST_ENDPOINTS`. Do not add a `VITE_*` flag.
 - **Anti-enumeration (backend T3-1).** `/test/login` returns the SAME 404 for
   "gate off" and "no such account". `devLogin()` maps it to the single reason
   `"test-endpoints-disabled"` and frames the copy as "set

@@ -116,7 +116,9 @@ export function LoginForm({
 
   // DEV-only email prefill (CEL-1364). Guarded INSIDE the effect so the hook
   // itself stays unconditional; Vite folds `import.meta.env.DEV` to `false` in
-  // production, and Rollup then drops the body along with its imports.
+  // production, so this body never runs there. (The two tiny storage helpers
+  // stay in the bundle as unreachable code — only the `DevSignInBypass`
+  // component is statically dropped. See __tests__/dev-bypass-treeshake.)
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     if (initialEmail) return;
@@ -238,7 +240,13 @@ export function LoginForm({
    *
    * Never auto-runs — it fires only from the dev button's click. On success it
    * applies the SAME portal guard the OTP path applies, so a producer address
-   * still can't land inside the importer portal (and vice versa).
+   * still can't land inside the importer portal (and vice versa), and it fails
+   * CLOSED: an unresolvable user type clears the token instead of standing.
+   *
+   * Token-adoption ordering matches `handleOtpSubmit` deliberately: both adopt
+   * the token first and clear it when the portal check rejects. If that order
+   * is ever tightened, tighten BOTH paths — fixing only this one hides the
+   * remaining hole in the OTP path.
    */
   async function handleDevLogin() {
     if (!authStore.devLogin) return;
@@ -258,9 +266,11 @@ export function LoginForm({
         return;
       }
 
-      // Portal guard, mirroring handleOtpSubmit. `/auth/me` is advisory here:
-      // if it fails we let the session stand rather than stranding a developer
-      // on a transient error.
+      // Portal guard, mirroring handleOtpSubmit. `verifyOtp` returns the user
+      // inline; the dev path has to ask `/auth/me` separately, so an
+      // unresolvable answer is a FAILED check, never a pass. Letting it pass
+      // would hand a transient `/auth/me` failure the power to seat an importer
+      // session inside the producer portal.
       let authenticatedUserType: string | null = null;
       try {
         const me = await authApi.getMe(result.accessToken);
@@ -288,7 +298,8 @@ export function LoginForm({
     }
   }
 
-  async function handleResend() {    setError("");
+  async function handleResend() {
+    setError("");
     setIsSubmitting(true);
 
     try {
@@ -513,7 +524,8 @@ export function LoginForm({
                 form on the same step; the OTP flow above is untouched and stays
                 the only path that exists in production builds. The literal
                 `import.meta.env.DEV` is what Vite folds to `false`, letting
-                Rollup drop this branch and the `./dev-sign-in.js` module. */}
+                Rollup drop this branch and the `DevSignInBypass` component
+                itself — asserted in __tests__/dev-bypass-treeshake.test.ts. */}
             {import.meta.env.DEV && step === "email" && authStore.devLogin && (
               <DevSignInBypass
                 email={normalizedEmail}

@@ -85,6 +85,7 @@
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/three": ">=0.160.0",
+    "esbuild": "^0.27.0",
     "happy-dom": "^20.0.0",
     "input-otp": ">=1.4.0",
     "lucide-react": ">=0.400.0",

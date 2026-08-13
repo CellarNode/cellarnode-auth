@@ -225,6 +225,61 @@ describe("LoginForm dev bypass — DEV builds (CEL-1364)", () => {
     expect((await screen.findByRole("alert")).textContent).toMatch(/producer accounts only/i);
     expect(props.onLoginSuccess).not.toHaveBeenCalled();
   });
+
+  it("fails closed when /auth/me throws — an unresolvable user type is not a pass", async () => {
+    // The dev path resolves the user type through a SEPARATE `/auth/me` call
+    // (verifyOtp gets it inline). A transient failure there must NOT be allowed
+    // to seat a session in the wrong portal.
+    window.localStorage.setItem(DEV_LOGIN_EMAIL_STORAGE_KEY, "dev@example.com");
+    const props = buildProps();
+    props.authApi.getMe = vi.fn(async () => {
+      throw new Error("network");
+    });
+    renderLogin(props);
+
+    const button = await waitFor(() => {
+      const el = screen.getByRole("button", { name: /dev sign-in/i }) as HTMLButtonElement;
+      expect(el.disabled).toBe(false);
+      return el;
+    });
+
+    button.click();
+
+    await waitFor(() => {
+      expect(props.authStore.clearAccessToken).toHaveBeenCalled();
+    });
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /couldn't verify your account type/i,
+    );
+    expect(props.onLoginSuccess).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when /auth/me answers without a userType", async () => {
+    window.localStorage.setItem(DEV_LOGIN_EMAIL_STORAGE_KEY, "dev@example.com");
+    const props = buildProps();
+    props.authApi.getMe = vi.fn(async () => ({
+      id: "user_dev",
+      email: "dev@example.com",
+      name: "Dev",
+      orgId: "org_dev",
+      roles: [],
+      createdAt: "2024-01-01T00:00:00.000Z",
+    }));
+    renderLogin(props);
+
+    const button = await waitFor(() => {
+      const el = screen.getByRole("button", { name: /dev sign-in/i }) as HTMLButtonElement;
+      expect(el.disabled).toBe(false);
+      return el;
+    });
+
+    button.click();
+
+    await waitFor(() => {
+      expect(props.authStore.clearAccessToken).toHaveBeenCalled();
+    });
+    expect(props.onLoginSuccess).not.toHaveBeenCalled();
+  });
 });
 
 describe("LoginForm dev bypass — production builds (CEL-1364)", () => {

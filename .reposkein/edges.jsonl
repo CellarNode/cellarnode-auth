@@ -14,6 +14,7 @@
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-guard.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts"}
+{"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/dev-bypass-treeshake.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/dev-login.test.ts"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/login-form-dev-bypass.test.tsx"}
 {"from":"rs1:7dc1dbe8d512:dir:__tests__","type":"CONTAINS","to":"rs1:7dc1dbe8d512:file:__tests__/login-form-responsive.test.tsx"}
@@ -54,6 +55,10 @@
 {"from":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/auth-store.ts","symbols":["createAuthStore"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/auth-store.test.ts","type":"IMPORTS","to":"rs1:7dc1dbe8d512:file:src/types.ts","symbols":["AuthUser"]}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/class-tokens.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/class-tokens.ts#classTokensAt@2"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/dev-bypass-treeshake.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/dev-bypass-treeshake.test.ts#bundleLoginForm@1"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/dev-bypass-treeshake.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/dev-bypass-treeshake.test.ts#DEV_ONLY_MARKUP"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/dev-bypass-treeshake.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/dev-bypass-treeshake.test.ts#EXTERNALS"}
+{"from":"rs1:7dc1dbe8d512:file:__tests__/dev-bypass-treeshake.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:var:__tests__/dev-bypass-treeshake.test.ts#ROOT"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/dev-login.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/dev-login.test.ts#flush@0"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/dev-login.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/dev-login.test.ts#jsonResponse@3"}
 {"from":"rs1:7dc1dbe8d512:file:__tests__/dev-login.test.ts","type":"DEFINES","to":"rs1:7dc1dbe8d512:func:__tests__/dev-login.test.ts#routedFetch@1"}

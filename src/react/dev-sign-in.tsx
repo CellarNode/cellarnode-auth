@@ -56,8 +56,11 @@ export interface DevSignInBypassProps {
  * in with a click.
  *
  * The component is only ever referenced from inside an
- * `import.meta.env.DEV && …` branch, so production bundles drop both the
- * branch and this module (the package sets `sideEffects: false`).
+ * `import.meta.env.DEV && …` branch, so production bundles drop the branch and
+ * this component with it (the package sets `sideEffects: false`). The two
+ * storage helpers above are called from live function bodies behind runtime
+ * guards, so they survive as unreachable code — that difference is pinned in
+ * `__tests__/dev-bypass-treeshake.test.ts`.
  */
 export function DevSignInBypass({
   email,

@@ -4,7 +4,7 @@
 
 ### Added
 - `AuthStore.devLogin(email)` (CEL-1364) — LOCAL-DEV helper that mints a session from the backend's `POST /test/login` and adopts the JWE through the same path `verifyOtp` uses (identity fetch, refresh scheduling, `onAccessTokenSet` / `onOrgChange` fan-out). Returns a `DevLoginResult` instead of throwing; the backend's uniform 404 maps to `reason: "test-endpoints-disabled"` with a "set `ENABLE_TEST_ENDPOINTS=true`" hint, never a claim about the address. Optional on the interface, so custom `AuthStore` implementations stay source-compatible.
-- `LoginForm` renders a DEV-only "Dev sign-in (skip the code)" control **alongside** the email form — additive, never a replacement, no auto-redirect. Gated on the literal `import.meta.env.DEV`, so production builds tree-shake the control and its module. No new env vars.
+- `LoginForm` renders a DEV-only "Dev sign-in (skip the code)" control **alongside** the email form — additive, never a replacement, no auto-redirect. Gated on the literal `import.meta.env.DEV`, so production builds tree-shake the control away (asserted against real bundler output, not just the runtime conditional). It applies the same portal guard as the OTP path and fails closed: if `/auth/me` cannot resolve a `userType`, the token is cleared instead of the session standing. No new env vars.
 - `DevSignInBypass`, `readDevLoginEmail`, `rememberDevLoginEmail`, `DEV_LOGIN_EMAIL_STORAGE_KEY` from `@cellarnode/auth/react`; `DevLoginResult` / `DevLoginSuccess` / `DevLoginFailure` / `DevLoginFailureReason` types from `@cellarnode/auth`.
 
 ## 0.13.3
