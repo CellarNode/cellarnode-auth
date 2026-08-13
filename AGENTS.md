@@ -4,11 +4,28 @@ Shared OTP-based authentication — token store, API client, React UI components
 
 ## Scope
 
-Powers OTP auth in: `producer-dashboard`, `cellarnode-importer-dashboard`, `cellarnode-mobile-app`, `cellarnode-elabel-frontend` (producer-side `/app/*`).
+Consumed by four SPAs, every one of them built with Vite:
+
+- **Full OTP flow + React components** — `producer-dashboard`,
+  `cellarnode-importer-dashboard`, `cellarnode-elabel-frontend` (producer-side
+  `/app/*`).
+- **Core store only** — `cellarnode-admin-dashboard-v2`. Its production auth is the
+  GitHub OAuth BFF (CEL-142+, see root AGENTS.md "Authentication / SSO Direction"),
+  but it does depend on this package: `src/auth/auth-store.ts` imports
+  `createAuthStore` to hold the local-dev `/test/login` JWE and to attach
+  `Authorization: Bearer` to outbound requests such as the Ably `authUrl` POST. It
+  renders nothing from `@cellarnode/auth/react`.
 
 **NOT used by:**
-- `cellarnode-admin-dashboard-v2` — uses GitHub OAuth BFF (CEL-142+, see root AGENTS.md "Authentication / SSO Direction").
+- `cellarnode-mobile-app` — no dependency, no import, no lockfile entry. It does not
+  consume this package at all.
 - `cellarnode-public-site` — marketing-only, no auth.
+
+There is therefore **no React Native / Metro consumer**. When the docs below call the
+core entry "bundler-agnostic", the case that must keep working is **plain Node ESM**
+(vitest, scripts, any non-Vite importer) — not Metro. That is the whole basis on which
+CEL-1364 declined an `import.meta.env` gate inside `devLogin`; do not restate it as a
+React Native constraint.
 
 ## Stack
 
@@ -44,7 +61,7 @@ The dev-bypass internals (`DevSignInBypass`, `DEV_LOGIN_EMAIL_STORAGE_KEY`,
 
 ### Core API
 
-- `createAuthStore({ baseUrl })` — token persistence (localStorage in browser; mobile uses an `expo-secure-store` adapter on the consumer side). Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
+- `createAuthStore({ baseUrl })` — holds the access token in a **module-closure variable, not `localStorage`**; durability across reloads comes from the backend's HttpOnly refresh cookie, which `performRefresh()` sends with `credentials: "include"`. `AuthStoreConfig` is `{ baseUrl, refreshPath?, refreshBuffer? }` — there is no storage-adapter seam. Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
 - `createAuthClient({ baseUrl, store, onAuthFailure })` — fetch wrapper, auto-attaches Bearer, calls `onAuthFailure` on 401.
 - `createAuthApi({ client, store })` — typed login/register/logout helpers.
 - `validateUserType(userType)` — `"producer" | "importer" | "distributor" | "admin"`.
