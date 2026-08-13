@@ -247,6 +247,11 @@ export function LoginForm({
    * the token first and clear it when the portal check rejects. If that order
    * is ever tightened, tighten BOTH paths — fixing only this one hides the
    * remaining hole in the OTP path.
+   *
+   * Every exit goes through `setDevError` (rendered as the bypass's `role=
+   * "alert"`), including the catch-all: a click handler is not an awaited
+   * caller, so anything that escapes here is an unhandled rejection nobody
+   * reads.
    */
   async function handleDevLogin() {
     if (!authStore.devLogin) return;
@@ -301,6 +306,17 @@ export function LoginForm({
 
       rememberDevLoginEmail(normalizedEmail);
       onLoginSuccess();
+    } catch (err) {
+      // `devLogin` is OPTIONAL on `AuthStore`, so a custom implementation is
+      // free to REJECT instead of resolving a `DevLoginFailure`; `getMe` is
+      // already wrapped, but `clearAccessToken` and `onLoginSuccess` can throw
+      // too. Without this catch the rejection escapes the click handler as an
+      // unhandled rejection — `finally` still re-enables the button, so the
+      // developer sees a form that silently did nothing.
+      const detail = err instanceof Error ? err.message : String(err);
+      const msg = `Dev sign-in failed unexpectedly: ${detail}`;
+      setDevError(msg);
+      onError?.({ code: "DEV_LOGIN_UNEXPECTED", message: msg });
     } finally {
       setIsDevSubmitting(false);
     }
@@ -424,10 +440,16 @@ export function LoginForm({
                     )}
                   </div>
 
+                  {/* `isDevSubmitting` belongs here, not just on the bypass
+                      button. The bypass is already disabled while the OTP form
+                      is busy; without the reciprocal guard a developer could
+                      request an OTP mid-`devLogin` and advance to the OTP step,
+                      and the resolving bypass would then call
+                      `onLoginSuccess()` from a step that no longer shows it. */}
                   <button
                     type="submit"
                     className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-                    disabled={isSubmitting || !normalizedEmail}
+                    disabled={isSubmitting || isDevSubmitting || !normalizedEmail}
                   >
                     {isSubmitting ? (
                       <Loader2 className="mr-2 size-4 animate-spin" />

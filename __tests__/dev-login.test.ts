@@ -237,4 +237,27 @@ describe("createAuthStore — devLogin failure mapping (CEL-1364)", () => {
     expect(store.getAccessToken()).toBeNull();
     expect(store.hasAccessToken()).toBe(false);
   });
+
+  it("reports malformed-response for a literal null body instead of rejecting", async () => {
+    // Given: a 200 whose body is valid JSON `null`. It PARSES, so the
+    // json()-throws branch never runs, and `extractAccessToken` would
+    // dereference null and throw straight out of `devLogin` — breaking the
+    // never-throws contract that `DevLoginResult` promises its only caller (a
+    // click handler with no other error channel).
+    global.fetch = routedFetch({
+      devLogin: { body: null },
+      me: baseMe,
+    }) as unknown as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+
+    // When / Then: a resolved failure, never a rejection.
+    await expect(store.devLogin?.("dev@example.com")).resolves.toMatchObject({
+      ok: false,
+      reason: "malformed-response",
+      status: 200,
+    });
+    await flush();
+    expect(store.getAccessToken()).toBeNull();
+    expect(store.hasAccessToken()).toBe(false);
+  });
 });

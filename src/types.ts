@@ -152,16 +152,29 @@ export interface AuthStore {
    * refresh cookies as the OTP flow, so `/auth/refresh` works afterwards.
    *
    * Rejects nothing: every outcome is returned as a `DevLoginResult` so the
-   * DEV-only UI can render an actionable hint.
+   * DEV-only UI can render an actionable hint. That includes a body that
+   * parses as literal `null` — see `createAuthStore`.
    *
-   * SAFETY: this is a client of a server-gated route, not a gate of its own.
-   * The route only exists when the backend runs with `ENABLE_TEST_ENDPOINTS=true`
-   * outside production; otherwise it 404s and this resolves to
-   * `{ ok: false, reason: "test-endpoints-disabled" }`.
+   * SAFETY — read before "hardening" this. `devLogin` and its failure copy DO
+   * ship in production bundles. It is a method on the object `createAuthStore()`
+   * returns, called from a live function body, so no bundler can eliminate it,
+   * and no runtime `import.meta.env.DEV` check inside it would eliminate it
+   * either (the core entry is deliberately bundler-agnostic — `import.meta.env`
+   * is `undefined` in a plain Node ESM host, so reading `.DEV` off it would
+   * THROW out of a method whose whole contract is that it does not).
+   *
+   * What makes that acceptable is that the gate is entirely server-side and
+   * double-enforced: `POST /test/login` is only MOUNTED when
+   * `!isProdLike() && ENABLE_TEST_ENDPOINTS === "true"`, and every handler
+   * re-checks the same predicate. In production the route does not exist, so a
+   * shipped `devLogin` resolves `{ ok: false, reason: "test-endpoints-disabled" }`
+   * and nothing else. Shipping the client of a non-existent route grants no
+   * capability an attacker could not reach with `curl`.
    *
    * Optional on the interface so custom `AuthStore` implementations (e.g. a
    * mobile secure-store adapter) stay source-compatible. `createAuthStore()`
-   * always provides it.
+   * always provides it. Being optional also means an implementation may REJECT
+   * rather than resolve, which callers must handle.
    */
   devLogin?(email: string): Promise<DevLoginResult>;
 

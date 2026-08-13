@@ -3,6 +3,7 @@ import type {
   AuthStore,
   AuthStoreConfig,
   AuthUser,
+  DevLoginFailure,
   DevLoginResult,
   LogoutListener,
   OrgChangeListener,
@@ -59,6 +60,15 @@ const DEFAULT_ACCESS_TOKEN_TTL = 900;
  * else. The backend deliberately returns an identical 404 for "gate off" and
  * "no such user" (T3-1), so any copy that named the account would be both a
  * guess and a weakening of that contract.
+ *
+ * These strings SHIP in production bundles — they are referenced from
+ * `devLogin`'s live body, which no bundler can prove unreachable. The
+ * `ENABLE_TEST_ENDPOINTS` mention is therefore public, which is fine: the flag
+ * is documented in this package's README and in the backend repo, and knowing
+ * its name grants nothing when the route is not mounted. Moving the copy behind
+ * the DEV-only React module would eliminate it, but only by taking the
+ * ready-to-render `message` off `DevLoginFailure` — a public-API change, not a
+ * review fixup.
  */
 const DEV_LOGIN_MESSAGES = {
   "test-endpoints-disabled":
@@ -370,26 +380,36 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
         };
       }
 
-      let json: Record<string, unknown>;
+      // Built once: three distinct malformed shapes converge on it below.
+      const malformed: DevLoginFailure = {
+        ok: false,
+        reason: "malformed-response",
+        status: res.status,
+        message: DEV_LOGIN_MESSAGES["malformed-response"],
+      };
+
+      let parsed: unknown;
       try {
-        json = (await res.json()) as Record<string, unknown>;
+        parsed = await res.json();
       } catch {
-        return {
-          ok: false,
-          reason: "malformed-response",
-          status: res.status,
-          message: DEV_LOGIN_MESSAGES["malformed-response"],
-        };
+        return malformed;
       }
+
+      // `res.json()` resolving is not the same as "we got an object". A body of
+      // literal `null` (or a bare string/number) parses fine, and
+      // `extractAccessToken` dereferences its argument — so passing `null`
+      // through would THROW out of a function whose result type promises it
+      // never does, leaving the DEV button with no error channel at all.
+      // Arrays fall through: they are objects, carry no token, and reach the
+      // same `malformed` below.
+      if (parsed === null || typeof parsed !== "object") {
+        return malformed;
+      }
+      const json = parsed as Record<string, unknown>;
 
       const token = extractAccessToken(json);
       if (!token) {
-        return {
-          ok: false,
-          reason: "malformed-response",
-          status: res.status,
-          message: DEV_LOGIN_MESSAGES["malformed-response"],
-        };
+        return malformed;
       }
 
       const expiresIn =

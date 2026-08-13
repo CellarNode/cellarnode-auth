@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoginForm } from "../src/react/login-form.js";
 import { DEV_LOGIN_EMAIL_STORAGE_KEY } from "../src/react/dev-sign-in.js";
@@ -138,28 +144,121 @@ describe("LoginForm dev bypass — DEV builds (CEL-1364)", () => {
     });
   });
 
-  it("signs in through devLogin on click and remembers the address", async () => {
-    // Given: a remembered address so the button is enabled without typing.
-    window.localStorage.setItem(DEV_LOGIN_EMAIL_STORAGE_KEY, "dev@example.com");
+  it("signs in as the address in the form and remembers THAT address", async () => {
+    // Given: a STALE remembered address, which the DEV prefill loads.
+    window.localStorage.setItem(DEV_LOGIN_EMAIL_STORAGE_KEY, "stale@example.com");
     const props = buildProps();
     renderLogin(props);
 
-    const button = await waitFor(() => {
-      const el = screen.getByRole("button", { name: /dev sign-in/i }) as HTMLButtonElement;
-      expect(el.disabled).toBe(false);
+    const input = await waitFor(() => {
+      const el = screen.getByLabelText(/email address/i) as HTMLInputElement;
+      expect(el.value).toBe("stale@example.com");
       return el;
     });
+
+    // ...and the developer types a DIFFERENT one. Seeding the key with the very
+    // address the assertion then expects is what made the earlier version of
+    // this test inert — it passed with `rememberDevLoginEmail` deleted. The
+    // seed and the expectation must DISAGREE, so that only the code under test
+    // can reconcile them.
+    fireEvent.change(input, { target: { value: "fresh@example.com" } });
+
+    const button = screen.getByRole("button", {
+      name: /dev sign-in/i,
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
 
     // When: the developer clicks the bypass.
     button.click();
 
-    // Then: the store helper mints the session and the consumer's success
-    // callback runs — same terminal behaviour as a verified OTP.
+    // Then: it signs in as the TYPED address, and that address replaces the
+    // stale one in storage.
     await waitFor(() => {
-      expect(props.authStore.devLogin).toHaveBeenCalledWith("dev@example.com");
+      expect(props.authStore.devLogin).toHaveBeenCalledWith("fresh@example.com");
       expect(props.onLoginSuccess).toHaveBeenCalledTimes(1);
     });
-    expect(window.localStorage.getItem(DEV_LOGIN_EMAIL_STORAGE_KEY)).toBe("dev@example.com");
+    expect(window.localStorage.getItem(DEV_LOGIN_EMAIL_STORAGE_KEY)).toBe(
+      "fresh@example.com",
+    );
+  });
+
+  it("surfaces an error when devLogin REJECTS rather than resolving a failure", async () => {
+    // Given: a custom AuthStore that throws. `devLogin` is OPTIONAL on the
+    // interface, so nothing forces an implementation to resolve DevLoginResult.
+    const onError = vi.fn();
+    const props = buildProps({ initialEmail: "dev@example.com", onError });
+    props.authStore.devLogin = vi.fn(async (): Promise<DevLoginResult> => {
+      throw new Error("store exploded");
+    });
+    renderLogin(props);
+
+    const button = screen.getByRole("button", {
+      name: /dev sign-in/i,
+    }) as HTMLButtonElement;
+
+    // When: the developer clicks the bypass.
+    button.click();
+
+    // Then: the failure reaches the SAME channel every other failure uses. Were
+    // the rejection to escape the handler, `finally` would still re-enable the
+    // button and this alert would never exist — a button that silently does
+    // nothing is precisely the symptom this pins.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/store exploded/);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "DEV_LOGIN_UNEXPECTED" }),
+    );
+    expect(props.onLoginSuccess).not.toHaveBeenCalled();
+
+    // And: the button is usable again, so a retry is one click away.
+    await waitFor(() => {
+      const el = screen.getByRole("button", {
+        name: /dev sign-in/i,
+      }) as HTMLButtonElement;
+      expect(el.disabled).toBe(false);
+    });
+  });
+
+  it("blocks the OTP submit while the bypass is in flight, so the two cannot race", async () => {
+    // Given: a devLogin that never settles on its own.
+    let release: (result: DevLoginResult) => void = () => {};
+    const pending = new Promise<DevLoginResult>((resolve) => {
+      release = resolve;
+    });
+    const props = buildProps({ initialEmail: "dev@example.com" });
+    props.authStore.devLogin = vi.fn(() => pending);
+    renderLogin(props);
+
+    // When: the bypass is clicked and left in flight.
+    (
+      screen.getByRole("button", { name: /dev sign-in/i }) as HTMLButtonElement
+    ).click();
+
+    // Then: "Continue" is disabled too. Without the reciprocal guard, requesting
+    // an OTP here would advance to the OTP step, and the resolving bypass would
+    // call onLoginSuccess() from a step that no longer renders it — the race
+    // `DevSignInBypassProps.disabled` claims cannot happen.
+    const cont = await waitFor(() => {
+      const el = screen.getByRole("button", {
+        name: /continue/i,
+      }) as HTMLButtonElement;
+      expect(el.disabled).toBe(true);
+      return el;
+    });
+    cont.click();
+    expect(props.authApi.requestOtp).not.toHaveBeenCalled();
+
+    // Cleanup: settle the promise so the component is not left mid-update.
+    release({
+      ok: true,
+      accessToken: "jwe.dev.token",
+      expiresIn: 900,
+      userId: "user_dev",
+      orgId: "org_dev",
+    });
+    await waitFor(() => {
+      expect(props.onLoginSuccess).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("surfaces the gate-off hint when the backend 404s, without blaming the address", async () => {

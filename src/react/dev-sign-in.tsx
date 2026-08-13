@@ -5,10 +5,16 @@ import { FlaskConical, Loader2, Zap } from "lucide-react";
 import { clsx } from "clsx";
 
 /**
- * localStorage key holding the last address used with the dev bypass
- * (CEL-1364). DEV-only convenience: it prefills the sign-in email so a fresh
- * tab is one click from a session. Read and written exclusively behind
- * `import.meta.env.DEV`, so production builds never touch it.
+ * INTERNAL (CEL-1364) — nothing in this module is re-exported from
+ * `@cellarnode/auth/react`. `LoginForm` is the only supported entry point; see
+ * the note in `src/react/index.ts`.
+ *
+ * localStorage key holding the last address used with the dev bypass. DEV-only
+ * convenience: it prefills the sign-in email so a fresh tab is one click from a
+ * session. Both call sites sit inside `LoginForm`'s `import.meta.env.DEV`
+ * branch, so production never reaches them — though the helpers themselves are
+ * called from live function bodies and therefore stay in the bundle as
+ * unreachable code (see `__tests__/dev-bypass-treeshake.test.ts`).
  */
 export const DEV_LOGIN_EMAIL_STORAGE_KEY = "cellarnode.dev.login-email";
 
@@ -41,7 +47,12 @@ export interface DevSignInBypassProps {
   email: string;
   /** True while the bypass request is in flight. */
   isSubmitting: boolean;
-  /** True while the OTP form is busy, so the two affordances can't race. */
+  /**
+   * True while the OTP form is busy. The guard is reciprocal — `LoginForm`
+   * also feeds its own dev-submitting state into the OTP submit button — which
+   * is what actually makes "the two affordances can't race" true rather than
+   * aspirational.
+   */
   disabled?: boolean;
   /** Developer-facing failure message from `authStore.devLogin()`. */
   error?: string;
