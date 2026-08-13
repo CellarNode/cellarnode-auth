@@ -1,0 +1,19 @@
+AGENTS.md
+  s_c0bc7786cb54ab::t_5b7f6e1e24b382 12-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a24841375d57869429b87befb611125b5a304435",
+  "prompts": {},
+  "sessions": {
+    "s_c0bc7786cb54ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae79a903-6262-4a77-aaeb-f9e596b75ddc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
