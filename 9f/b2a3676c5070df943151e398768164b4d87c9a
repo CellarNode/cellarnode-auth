@@ -1,0 +1,23 @@
+AGENTS.md
+  s_c0bc7786cb54ab::t_e05057a5f3156f 64
+  s_c0bc7786cb54ab::t_0260d35f8fe2a7 7-17,20-21,24-28
+  s_c0bc7786cb54ab::t_c85546b62e354e 29
+README.md
+  s_c0bc7786cb54ab::t_de081384cb14b7 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "9fb2a3676c5070df943151e398768164b4d87c9a",
+  "prompts": {},
+  "sessions": {
+    "s_c0bc7786cb54ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae79a903-6262-4a77-aaeb-f9e596b75ddc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
