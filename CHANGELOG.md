@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+
+### Added
+- `AuthStore.devLogin(email)` (CEL-1364) — LOCAL-DEV helper that mints a session from the backend's `POST /test/login` and adopts the JWE through the same path `verifyOtp` uses (identity fetch, refresh scheduling, `onAccessTokenSet` / `onOrgChange` fan-out). Returns a `DevLoginResult` instead of throwing; the backend's uniform 404 maps to `reason: "test-endpoints-disabled"` with a "set `ENABLE_TEST_ENDPOINTS=true`" hint, never a claim about the address. Optional on the interface, so custom `AuthStore` implementations stay source-compatible.
+- `LoginForm` renders a DEV-only "Dev sign-in (skip the code)" control **alongside** the email form — additive, never a replacement, no auto-redirect. Gated on the literal `import.meta.env.DEV`, so production builds tree-shake the control away (asserted against real bundler output, not just the runtime conditional). It applies the same portal guard as the OTP path and fails closed: if `/auth/me` cannot resolve a `userType`, the token is cleared instead of the session standing. While the bypass is in flight the OTP "Continue" button is disabled, so the two affordances cannot race. No new env vars.
+- `DevLoginResult` / `DevLoginSuccess` / `DevLoginFailure` / `DevLoginFailureReason` types from `@cellarnode/auth`. The bypass internals (`DevSignInBypass`, `readDevLoginEmail`, `rememberDevLoginEmail`, `DEV_LOGIN_EMAIL_STORAGE_KEY`) are intentionally NOT exported from `@cellarnode/auth/react` — the DEV gate lives at `LoginForm`'s single call site, and an exported symbol would carry none. Note that `devLogin` itself and its failure copy do ship in production bundles; the gate is the server-side `ENABLE_TEST_ENDPOINTS` mount check, so the route simply does not exist there.
+
 ## 0.13.3
 
 ### Fixed

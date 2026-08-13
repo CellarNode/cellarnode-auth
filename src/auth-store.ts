@@ -3,6 +3,8 @@ import type {
   AuthStore,
   AuthStoreConfig,
   AuthUser,
+  DevLoginFailure,
+  DevLoginResult,
   LogoutListener,
   OrgChangeListener,
   SessionUserType,
@@ -44,6 +46,40 @@ function toIdentity(user: AuthUser): Identity {
     entitlements,
   };
 }
+
+/**
+ * Fallback access-token lifetime, in seconds, when the server omits
+ * `expiresIn`. Mirrors the verify-otp adoption path in `auth-api.ts`.
+ */
+const DEFAULT_ACCESS_TOKEN_TTL = 900;
+
+/**
+ * Developer-facing copy for each `devLogin()` failure (CEL-1364).
+ *
+ * The 404 message frames the outcome as "the backend gate is off" and nothing
+ * else. The backend deliberately returns an identical 404 for "gate off" and
+ * "no such user" (T3-1), so any copy that named the account would be both a
+ * guess and a weakening of that contract.
+ *
+ * These strings SHIP in production bundles — they are referenced from
+ * `devLogin`'s live body, which no bundler can prove unreachable. The
+ * `ENABLE_TEST_ENDPOINTS` mention is therefore public, which is fine: the flag
+ * is documented in this package's README and in the backend repo, and knowing
+ * its name grants nothing when the route is not mounted. Moving the copy behind
+ * the DEV-only React module would eliminate it, but only by taking the
+ * ready-to-render `message` off `DevLoginFailure` — a public-API change, not a
+ * review fixup.
+ */
+const DEV_LOGIN_MESSAGES = {
+  "test-endpoints-disabled":
+    "Dev sign-in unavailable: backend test endpoints are disabled. Set ENABLE_TEST_ENDPOINTS=true on the API and restart it.",
+  "rate-limited": "Dev sign-in rate limit hit (5/min). Wait a minute and retry.",
+  forbidden:
+    "Dev sign-in rejected: the API requires a fixture secret (TEST_FIXTURE_SECRET is set).",
+  network: "Dev sign-in could not reach the API. Is the backend running?",
+  "malformed-response":
+    "Dev sign-in succeeded but the API returned no access token.",
+} as const;
 
 export function createAuthStore(config: AuthStoreConfig): AuthStore {
   const { baseUrl, refreshPath = "/auth/refresh", refreshBuffer = 60 } = config;
@@ -281,6 +317,115 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
         refreshPromise = null;
       });
       return refreshPromise;
+    },
+
+    /**
+     * LOCAL-DEV ONLY (CEL-1364) — see the `AuthStore.devLogin` doc comment.
+     *
+     * Adoption deliberately routes through `store.setAccessToken()` rather than
+     * touching `applyToken` / `scheduleRefresh` directly, so there is exactly
+     * ONE token-adoption path shared with verify-otp: same identity fetch, same
+     * refresh scheduling, same listener fan-out and ordering.
+     */
+    async devLogin(email: string): Promise<DevLoginResult> {
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/test/login`, {
+          method: "POST",
+          // The route also sets the BFF session + refresh cookies the OTP flow
+          // sets; `include` is what lets a subsequent `/auth/refresh` work.
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+      } catch {
+        return {
+          ok: false,
+          reason: "network",
+          status: null,
+          message: DEV_LOGIN_MESSAGES.network,
+        };
+      }
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          return {
+            ok: false,
+            reason: "test-endpoints-disabled",
+            status: 404,
+            message: DEV_LOGIN_MESSAGES["test-endpoints-disabled"],
+          };
+        }
+        if (res.status === 429) {
+          return {
+            ok: false,
+            reason: "rate-limited",
+            status: 429,
+            message: DEV_LOGIN_MESSAGES["rate-limited"],
+          };
+        }
+        if (res.status === 403) {
+          return {
+            ok: false,
+            reason: "forbidden",
+            status: 403,
+            message: DEV_LOGIN_MESSAGES.forbidden,
+          };
+        }
+        return {
+          ok: false,
+          reason: "unexpected",
+          status: res.status,
+          message: `Dev sign-in failed (HTTP ${res.status}).`,
+        };
+      }
+
+      // Built once: three distinct malformed shapes converge on it below.
+      const malformed: DevLoginFailure = {
+        ok: false,
+        reason: "malformed-response",
+        status: res.status,
+        message: DEV_LOGIN_MESSAGES["malformed-response"],
+      };
+
+      let parsed: unknown;
+      try {
+        parsed = await res.json();
+      } catch {
+        return malformed;
+      }
+
+      // `res.json()` resolving is not the same as "we got an object". A body of
+      // literal `null` (or a bare string/number) parses fine, and
+      // `extractAccessToken` dereferences its argument — so passing `null`
+      // through would THROW out of a function whose result type promises it
+      // never does, leaving the DEV button with no error channel at all.
+      // Arrays fall through: they are objects, carry no token, and reach the
+      // same `malformed` below.
+      if (parsed === null || typeof parsed !== "object") {
+        return malformed;
+      }
+      const json = parsed as Record<string, unknown>;
+
+      const token = extractAccessToken(json);
+      if (!token) {
+        return malformed;
+      }
+
+      const expiresIn =
+        typeof json.expiresIn === "number"
+          ? json.expiresIn
+          : DEFAULT_ACCESS_TOKEN_TTL;
+
+      store.setAccessToken(token, expiresIn);
+
+      return {
+        ok: true,
+        accessToken: token,
+        expiresIn,
+        userId: typeof json.userId === "string" ? json.userId : null,
+        orgId: typeof json.orgId === "string" ? json.orgId : null,
+      };
     },
 
     getUserId() {

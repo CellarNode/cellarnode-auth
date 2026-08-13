@@ -1,6 +1,6 @@
 {
   "name": "@cellarnode/auth",
-  "version": "0.13.3",
+  "version": "0.14.0",
   "description": "Shared OTP-based authentication — token store, API client, React UI components for CellarNode dashboards.",
   "license": "MIT",
   "type": "module",
@@ -85,6 +85,7 @@
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/three": ">=0.160.0",
+    "esbuild": "^0.27.0",
     "happy-dom": "^20.0.0",
     "input-otp": ">=1.4.0",
     "lucide-react": ">=0.400.0",

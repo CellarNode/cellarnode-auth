@@ -19,6 +19,11 @@ import {
   InputOTPSeparator,
   InputOTPSlot,
 } from "./input-otp-slots.js";
+import {
+  DevSignInBypass,
+  readDevLoginEmail,
+  rememberDevLoginEmail,
+} from "./dev-sign-in.js";
 
 const LazySquircleShift = React.lazy(() =>
   import("./squircle-shift.js").then((m) => ({ default: m.SquircleShift })),
@@ -106,6 +111,21 @@ export function LoginForm({
   const [countdown, setCountdown] = useState("10:00");
   const [resendCountdown, setResendCountdown] = useState("01:00");
   const [isShaking, setIsShaking] = useState(false);
+  const [devError, setDevError] = useState("");
+  const [isDevSubmitting, setIsDevSubmitting] = useState(false);
+
+  // DEV-only email prefill (CEL-1364). Guarded INSIDE the effect so the hook
+  // itself stays unconditional; Vite folds `import.meta.env.DEV` to `false` in
+  // production, so this body never runs there. (The two tiny storage helpers
+  // stay in the bundle as unreachable code — only the `DevSignInBypass`
+  // component is statically dropped. See __tests__/dev-bypass-treeshake.)
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (initialEmail) return;
+    const remembered = readDevLoginEmail();
+    if (!remembered) return;
+    setEmail((current) => (current.length > 0 ? current : remembered));
+  }, [initialEmail]);
 
   useEffect(() => {
     if (!expiresAt) return;
@@ -212,6 +232,93 @@ export function LoginForm({
       setTimeout(() => setIsShaking(false), 500);
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  /**
+   * DEV-only bypass (CEL-1364): mint a session straight from `/test/login`.
+   *
+   * Never auto-runs — it fires only from the dev button's click. On success it
+   * applies the SAME portal guard the OTP path applies, so a producer address
+   * still can't land inside the importer portal (and vice versa), and it fails
+   * CLOSED: an unresolvable user type clears the token instead of standing.
+   *
+   * Token-adoption ordering matches `handleOtpSubmit` deliberately: both adopt
+   * the token first and clear it when the portal check rejects. If that order
+   * is ever tightened, tighten BOTH paths — fixing only this one hides the
+   * remaining hole in the OTP path.
+   *
+   * Every exit goes through `setDevError` (rendered as the bypass's `role=
+   * "alert"`), including the catch-all: a click handler is not an awaited
+   * caller, so anything that escapes here is an unhandled rejection nobody
+   * reads.
+   */
+  async function handleDevLogin() {
+    if (!authStore.devLogin) return;
+    setError("");
+    setDevError("");
+    setIsDevSubmitting(true);
+
+    try {
+      const result = await authStore.devLogin(normalizedEmail);
+
+      if (!result.ok) {
+        setDevError(result.message);
+        onError?.({
+          code: `DEV_LOGIN_${result.reason.replace(/-/g, "_").toUpperCase()}`,
+          message: result.message,
+        });
+        return;
+      }
+
+      // Portal guard, mirroring handleOtpSubmit. `verifyOtp` returns the user
+      // inline; the dev path has to ask `/auth/me` separately, so an
+      // unresolvable answer is a FAILED check, never a pass. Letting it pass
+      // would hand a transient `/auth/me` failure the power to seat an importer
+      // session inside the producer portal.
+      let authenticatedUserType: string | null = null;
+      try {
+        const me = await authApi.getMe(result.accessToken);
+        authenticatedUserType = me?.userType ?? null;
+      } catch {
+        authenticatedUserType = null;
+      }
+
+      if (!authenticatedUserType) {
+        const msg = "Couldn't verify your account type. Try again.";
+        authStore.clearAccessToken();
+        setDevError(msg);
+        onError?.({ code: "DEV_LOGIN_USER_TYPE_UNVERIFIED", message: msg });
+        return;
+      }
+
+      if (authenticatedUserType !== userType) {
+        const msg = `This portal is for ${userType} accounts only.`;
+        authStore.clearAccessToken();
+        setDevError(msg);
+        onError?.({
+          code: "USER_TYPE_MISMATCH",
+          message: msg,
+          authenticatedUserType,
+        });
+        return;
+      }
+
+      rememberDevLoginEmail(normalizedEmail);
+      onLoginSuccess();
+    } catch (err) {
+      // `devLogin` is OPTIONAL on `AuthStore`, so a custom implementation is
+      // free to REJECT instead of resolving a `DevLoginFailure`; `getMe` is
+      // already wrapped, but `clearAccessToken` and `onLoginSuccess` can throw
+      // too. Without this catch the rejection escapes the click handler as an
+      // unhandled rejection — `finally` still re-enables the button, so the
+      // developer sees a form that silently did nothing.
+      const detail = err instanceof Error ? err.message : String(err);
+      const msg = `Dev sign-in failed unexpectedly: ${detail}`;
+      setDevError(msg);
+      onError?.({ code: "DEV_LOGIN_UNEXPECTED", message: msg });
+    } finally {
+      setIsDevSubmitting(false);
     }
   }
 
@@ -333,10 +440,16 @@ export function LoginForm({
                     )}
                   </div>
 
+                  {/* `isDevSubmitting` belongs here, not just on the bypass
+                      button. The bypass is already disabled while the OTP form
+                      is busy; without the reciprocal guard a developer could
+                      request an OTP mid-`devLogin` and advance to the OTP step,
+                      and the resolving bypass would then call
+                      `onLoginSuccess()` from a step that no longer shows it. */}
                   <button
                     type="submit"
                     className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-                    disabled={isSubmitting || !normalizedEmail}
+                    disabled={isSubmitting || isDevSubmitting || !normalizedEmail}
                   >
                     {isSubmitting ? (
                       <Loader2 className="mr-2 size-4 animate-spin" />
@@ -436,6 +549,22 @@ export function LoginForm({
                 </form>
               )}
             </div>
+
+            {/* DEV-only bypass (CEL-1364) — ADDITIVE. It sits beside the email
+                form on the same step; the OTP flow above is untouched and stays
+                the only path that exists in production builds. The literal
+                `import.meta.env.DEV` is what Vite folds to `false`, letting
+                Rollup drop this branch and the `DevSignInBypass` component
+                itself — asserted in __tests__/dev-bypass-treeshake.test.ts. */}
+            {import.meta.env.DEV && step === "email" && authStore.devLogin && (
+              <DevSignInBypass
+                email={normalizedEmail}
+                isSubmitting={isDevSubmitting}
+                disabled={isSubmitting}
+                error={devError}
+                onDevSignIn={handleDevLogin}
+              />
+            )}
 
             {/* Footer — only on email step */}
             {step === "email" && (
