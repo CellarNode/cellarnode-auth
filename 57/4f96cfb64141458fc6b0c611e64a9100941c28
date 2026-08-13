@@ -1,0 +1,19 @@
+src/react/login-form.tsx
+  s_c0bc7786cb54ab::t_b92b3921c17319 282-290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "574f96cfb64141458fc6b0c611e64a9100941c28",
+  "prompts": {},
+  "sessions": {
+    "s_c0bc7786cb54ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae79a903-6262-4a77-aaeb-f9e596b75ddc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
