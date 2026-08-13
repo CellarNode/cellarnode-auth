@@ -9,12 +9,25 @@ Consumed by four SPAs, every one of them built with Vite:
 - **Full OTP flow + React components** — `producer-dashboard`,
   `cellarnode-importer-dashboard`, `cellarnode-elabel-frontend` (producer-side
   `/app/*`).
-- **Core store only** — `cellarnode-admin-dashboard-v2`. Its production auth is the
-  GitHub OAuth BFF (CEL-142+, see root AGENTS.md "Authentication / SSO Direction"),
-  but it does depend on this package: `src/auth/auth-store.ts` imports
-  `createAuthStore` to hold the local-dev `/test/login` JWE and to attach
-  `Authorization: Bearer` to outbound requests such as the Ably `authUrl` POST. It
-  renders nothing from `@cellarnode/auth/react`.
+- **Vestigial core-store import** — `cellarnode-admin-dashboard-v2`. It declares the
+  dependency and `src/auth/auth-store.ts:22` imports `createAuthStore`, but the
+  resulting store is effectively unused. All of its auth — production *and* local dev
+  — flows through the GitHub OAuth BFF's HttpOnly `cellarnode_session` cookie (CEL-142+,
+  see root AGENTS.md "Authentication / SSO Direction"). Concretely, post-CEL-170:
+  - nothing in the SPA calls `setAccessToken`, so the store never holds a token. The
+    dev-only `/test/login` bypass stopped committing the JWE in CEL-170 and now only
+    branches on the response status (`src/auth/dev-login.ts:24-28`).
+  - nothing attaches `Authorization: Bearer` from it. The Ably `authUrl` POST to
+    `/ably-token` is same-origin and rides the cookie; the old `getAccessToken()`
+    Bearer fallback was deleted as dead code
+    (`src/components/layout/AuthenticatedShell.tsx:172-181`).
+  - the single surviving call is `authStore.clearAccessToken()` on logout
+    (`src/pages/auth/LogoutPage.tsx:32`), which clears an always-empty store.
+
+  So treat admin-v2 as a dependency-of-record, not a behavioral consumer: changes to
+  store semantics do not affect it, though removing `createAuthStore` or
+  `clearAccessToken` from the public API would still break its build. It renders
+  nothing from `@cellarnode/auth/react`.
 
 **NOT used by:**
 - `cellarnode-mobile-app` — no dependency, no import, no lockfile entry. It does not
