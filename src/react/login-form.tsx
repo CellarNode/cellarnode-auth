@@ -279,7 +279,15 @@ export function LoginForm({
         authenticatedUserType = null;
       }
 
-      if (authenticatedUserType && authenticatedUserType !== userType) {
+      if (!authenticatedUserType) {
+        const msg = "Couldn't verify your account type. Try again.";
+        authStore.clearAccessToken();
+        setDevError(msg);
+        onError?.({ code: "DEV_LOGIN_USER_TYPE_UNVERIFIED", message: msg });
+        return;
+      }
+
+      if (authenticatedUserType !== userType) {
         const msg = `This portal is for ${userType} accounts only.`;
         authStore.clearAccessToken();
         setDevError(msg);
