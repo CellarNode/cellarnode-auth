@@ -4,11 +4,41 @@ Shared OTP-based authentication — token store, API client, React UI components
 
 ## Scope
 
-Powers OTP auth in: `producer-dashboard`, `cellarnode-importer-dashboard`, `cellarnode-mobile-app`, `cellarnode-elabel-frontend` (producer-side `/app/*`).
+Consumed by four SPAs, every one of them built with Vite:
+
+- **Full OTP flow + React components** — `producer-dashboard`,
+  `cellarnode-importer-dashboard`, `cellarnode-elabel-frontend` (producer-side
+  `/app/*`).
+- **Vestigial core-store import** — `cellarnode-admin-dashboard-v2`. It declares the
+  dependency and `src/auth/auth-store.ts:22` imports `createAuthStore`, but the
+  resulting store is effectively unused. All of its auth — production *and* local dev
+  — flows through the GitHub OAuth BFF's HttpOnly `cellarnode_session` cookie (CEL-142+,
+  see root AGENTS.md "Authentication / SSO Direction"). Concretely, post-CEL-170:
+  - nothing in the SPA calls `setAccessToken`, so the store never holds a token. The
+    dev-only `/test/login` bypass stopped committing the JWE in CEL-170 and now only
+    branches on the response status (`src/auth/dev-login.ts:24-28`).
+  - nothing attaches `Authorization: Bearer` from it. The Ably `authUrl` POST to
+    `/ably-token` is same-origin and rides the cookie; the old `getAccessToken()`
+    Bearer fallback was deleted as dead code
+    (`src/components/layout/AuthenticatedShell.tsx:172-181`).
+  - the single surviving call is `authStore.clearAccessToken()` on logout
+    (`src/pages/auth/LogoutPage.tsx:32`), which clears an always-empty store.
+
+  So treat admin-v2 as a dependency-of-record, not a behavioral consumer: changes to
+  store semantics do not affect it, though removing `createAuthStore` or
+  `clearAccessToken` from the public API would still break its build. It renders
+  nothing from `@cellarnode/auth/react`.
 
 **NOT used by:**
-- `cellarnode-admin-dashboard-v2` — uses GitHub OAuth BFF (CEL-142+, see root AGENTS.md "Authentication / SSO Direction").
+- `cellarnode-mobile-app` — no dependency, no import, no lockfile entry. It does not
+  consume this package at all.
 - `cellarnode-public-site` — marketing-only, no auth.
+
+There is therefore **no React Native / Metro consumer**. When the docs below call the
+core entry "bundler-agnostic", the case that must keep working is **plain Node ESM**
+(vitest, scripts, any non-Vite importer) — not Metro. That is the whole basis on which
+CEL-1364 declined an `import.meta.env` gate inside `devLogin`; do not restate it as a
+React Native constraint.
 
 ## Stack
 
@@ -44,7 +74,7 @@ The dev-bypass internals (`DevSignInBypass`, `DEV_LOGIN_EMAIL_STORAGE_KEY`,
 
 ### Core API
 
-- `createAuthStore({ baseUrl })` — token persistence (localStorage in browser; mobile uses an `expo-secure-store` adapter on the consumer side). Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
+- `createAuthStore({ baseUrl })` — holds the access token in a **module-closure variable, not `localStorage`**; durability across reloads comes from the backend's HttpOnly refresh cookie, which `performRefresh()` sends with `credentials: "include"`. `AuthStoreConfig` is `{ baseUrl, refreshPath?, refreshBuffer? }` — there is no storage-adapter seam. Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
 - `createAuthClient({ baseUrl, store, onAuthFailure })` — fetch wrapper, auto-attaches Bearer, calls `onAuthFailure` on 401.
 - `createAuthApi({ client, store })` — typed login/register/logout helpers.
 - `validateUserType(userType)` — `"producer" | "importer" | "distributor" | "admin"`.
