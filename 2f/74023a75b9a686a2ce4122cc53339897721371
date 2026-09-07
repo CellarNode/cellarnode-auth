@@ -1,0 +1,77 @@
+__tests__/session-resolution.test.ts
+  s_0099ecd76e936c::t_d72dd518c4bb55 2,120-148
+  s_0099ecd76e936c::t_eb6d5ee32da94b 533-537,565-569
+  s_0099ecd76e936c::t_5fd8c1e1efbbb9 149,177-240,438-459,464-473,475-532,538-564,570-590
+  s_0099ecd76e936c::t_777fe77ae477a0 303,328,377
+  s_0099ecd76e936c::t_e551141e1bfef3 460-463,474
+  s_0099ecd76e936c::t_28fb1d114cf07d 150
+__tests__/auth-client.test.ts
+  s_0099ecd76e936c::t_545e4d387daac8 208-213,216
+  s_0099ecd76e936c::t_b10f3d1e49cf41 124-186
+  s_0099ecd76e936c::t_7f97a4fe3ee4dd 34-36,324-352
+  s_0099ecd76e936c::t_0dae042997d4e8 355-396
+  s_0099ecd76e936c::t_0b19545c4729b6 413
+  s_0099ecd76e936c::t_892171b25fe47b 200,226
+  s_0099ecd76e936c::t_febac09861456c 231,252-253
+  s_0099ecd76e936c::t_4b933a542e4ce3 233-238,243
+  s_0099ecd76e936c::t_fffaffaecdc582 308-323,353-354
+README.md
+  s_0099ecd76e936c::t_b2838489e4ff84 52-55
+  s_0099ecd76e936c::t_4e6baefd4633ef 22,65-67,74-77,134
+src/auth-api.ts
+  s_0099ecd76e936c::t_c35b64dde730d3 9,63
+  s_0099ecd76e936c::t_0b19545c4729b6 81,97
+  s_0099ecd76e936c::t_dbbdf6bccd329b 82
+  s_0099ecd76e936c::t_0f9c5e27b2522b 80,110-112
+src/session-continuity.ts
+  s_0099ecd76e936c::t_0553028ddd1160 3,54-105,124-134
+  s_0099ecd76e936c::t_ce56c4219f571c 108,110-111,118-120
+  s_0099ecd76e936c::t_d72dd518c4bb55 18-19,22-33,42,46-49
+  s_0099ecd76e936c::t_0dae042997d4e8 106-107,109,112-117,121-123
+  s_0099ecd76e936c::t_384232ae697015 135
+src/auth-store.ts
+  s_0099ecd76e936c::t_7bdc8c3dd4124a 101-104,111,115-118,125,149,155,265-268,305-308,315-318,586-593
+  s_0099ecd76e936c::t_eabaa25043fa7c 185,187-190,220-222
+  s_0099ecd76e936c::t_43385c35378bcb 182-184,186,209-219,224,226,235
+  s_0099ecd76e936c::t_fc42b33fb40cb8 563,569,582,608-612
+  s_0099ecd76e936c::t_2e6c201fb10ecf 255-256,264,269
+  s_0099ecd76e936c::t_542e4c84ac841f 200-207
+  s_0099ecd76e936c::t_d72dd518c4bb55 709-710
+  s_0099ecd76e936c::t_dbbdf6bccd329b 19,65-74
+  s_0099ecd76e936c::t_dc20c7a70484db 462,464,473
+  s_0099ecd76e936c::t_b93b6b27186942 328,334-336,339-353,355-359,361,364,366-367,369-378,380-382,384,386-402,417,422-448,450-452,455-461,470,474,476-478,480,482,484,489,508-524,538
+  s_0099ecd76e936c::t_fc1282c2bd352c 191-199,208
+__tests__/auth-api.test.ts
+  s_0099ecd76e936c::t_0b19545c4729b6 156-180
+  s_0099ecd76e936c::t_0f9c5e27b2522b 267,269-300
+  s_0099ecd76e936c::t_d72dd518c4bb55 201,229,238,243-266
+  s_0099ecd76e936c::t_c2a9a1eb2542f6 268
+src/auth-client.ts
+  s_0099ecd76e936c::t_fffaffaecdc582 91-106,108
+  s_0099ecd76e936c::t_7f97a4fe3ee4dd 107
+  s_0099ecd76e936c::t_accf333d5531f4 6,60-77
+  s_0099ecd76e936c::t_9f9a5beec9a856 109,116,136-147
+src/index.ts
+  s_0099ecd76e936c::t_c35b64dde730d3 24
+  s_0099ecd76e936c::t_0553028ddd1160 9
+src/types.ts
+  s_0099ecd76e936c::t_dbbdf6bccd329b 70-71
+  s_0099ecd76e936c::t_d72dd518c4bb55 195-197,270
+  s_0099ecd76e936c::t_c35b64dde730d3 31-41,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2f74023a75b9a686a2ce4122cc53339897721371",
+  "prompts": {},
+  "sessions": {
+    "s_0099ecd76e936c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0766e-b154-7fb2-b9c3-58aa7940eda0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
