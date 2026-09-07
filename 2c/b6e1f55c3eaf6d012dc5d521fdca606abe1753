@@ -1,0 +1,21 @@
+.reposkein/decisions/2026-09-07-centralize-stale-401-replay-authority-resolution.json
+  s_0099ecd76e936c::t_194d17441f2219 1-30
+.reposkein/summaries/fd.jsonl
+  s_0099ecd76e936c::t_cb6c3fe5f57b22 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2cb6e1f55c3eaf6d012dc5d521fdca606abe1753",
+  "prompts": {},
+  "sessions": {
+    "s_0099ecd76e936c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0766e-b154-7fb2-b9c3-58aa7940eda0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
