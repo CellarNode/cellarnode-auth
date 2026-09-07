@@ -93,6 +93,16 @@ Add this to your CSS file so Tailwind picks up utility classes from the package:
 and an exported symbol carries no gate — a consumer importing it could render the
 bypass UI, or write a sign-in address to `localStorage`, from a production build.
 
+## Publishing
+
+Published to npm (public access) via **npm Trusted Publishing (OIDC)** —
+`.github/workflows/publish.yml` publishes automatically on a merge to `main` that changes
+`package.json`'s version. There is no long-lived npm token in the publish job, and nobody runs
+`npm publish` by hand. Provenance is generated automatically (public repo + public package).
+
+Bump `version` in `package.json` and land it through a normal PR — merging to `main` is what
+triggers the publish job, gated on the version having actually changed.
+
 ## License
 
 MIT
