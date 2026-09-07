@@ -13,7 +13,13 @@ npm install @cellarnode/auth
 ### Core (framework-agnostic)
 
 ```ts
-import { createAuthStore, createAuthClient, createAuthApi } from "@cellarnode/auth";
+import {
+  canReplaySession,
+  captureSessionContinuity,
+  createAuthApi,
+  createAuthClient,
+  createAuthStore,
+} from "@cellarnode/auth";
 
 const authStore = createAuthStore({
   baseUrl: "http://localhost:4000",
@@ -26,6 +32,36 @@ const authClient = createAuthClient({
 });
 
 const authApi = createAuthApi({ client: authClient, store: authStore });
+```
+
+Resolve token and authoritative identity together before enabling protected
+work. `unavailable` preserves credentials while authority getters fail closed.
+Caller abort returns `superseded` without cancelling shared adoption.
+
+```ts
+const session = await authStore.resolveSession({ refresh: true, signal });
+if (session.status === "ready") {
+  // session.token and validated session.user are from one guarded generation
+}
+```
+
+`onSessionStateChange` immediately reports current state. A synchronous
+`resolving` notification precedes credential or authority changes, allowing
+consumers to suspend writes and clear captured tenant queries first.
+
+Authenticated transports that retry after 401 must capture continuity before
+their first request and replay only for same validated user and organisation:
+
+```ts
+const before = captureSessionContinuity(authStore);
+if (!before) throw new Error("Session authority unavailable");
+const response = await fetch(url, init);
+if (response.status === 401) {
+  const after = await authStore.resolveSession({ refresh: true, signal: init.signal });
+  if (canReplaySession(before, after, authStore)) {
+    // retry once with after.token
+  }
+}
 ```
 
 ### React Components
@@ -84,7 +120,7 @@ Add this to your CSS file so Tailwind picks up utility classes from the package:
 
 ## Exports
 
-- `@cellarnode/auth` — Core: `createAuthStore`, `createAuthClient`, `createAuthApi`, `validateUserType`, `hasEntitlement`, `extractAccessToken`, `AuthError`, types (incl. `DevLoginResult`)
+- `@cellarnode/auth` — Core: `createAuthStore`, `createAuthClient`, `createAuthApi`, `captureSessionContinuity`, `canReplaySession`, `validateUserType`, `hasEntitlement`, `extractAccessToken`, `AuthError`, session-resolution types, and `DevLoginResult`
 - `@cellarnode/auth/react` — React: `LoginForm`, `RegisterForm`, `UnauthorizedPage`, `SquircleShift`, `InputOTP` (+ `Group` / `Slot` / `Separator`)
 
 `DevSignInBypass`, `DEV_LOGIN_EMAIL_STORAGE_KEY`, `readDevLoginEmail` and

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createAuthApi } from "../src/auth-api.js";
+import { createAuthStore } from "../src/auth-store.js";
 import { AuthError } from "../src/types.js";
 import type { AuthClient, AuthStore } from "../src/types.js";
 
@@ -77,6 +78,28 @@ describe("createAuthApi", () => {
     expect(store.setAccessToken).toHaveBeenCalledWith("tok_new", 900);
   });
 
+  it("does not apply full /auth/me validation to sparse verify-otp user", async () => {
+    const client = mockClient();
+    const store = mockStore();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accessToken: "tok_sparse",
+      expiresIn: 900,
+      user: {
+        id: "u1",
+        email: "t@t.com",
+        name: "Test",
+        userType: "producer",
+        orgId: null,
+        roles: [],
+      },
+    });
+
+    const api = createAuthApi({ client, store });
+    await expect(api.verifyOtp("t@t.com", "123456")).resolves.toMatchObject({
+      user: { id: "u1" },
+    });
+  });
+
   it("verifyOtp extracts token from nested response shapes", async () => {
     const client = mockClient();
     const store = mockStore();
@@ -130,7 +153,7 @@ describe("createAuthApi", () => {
     expect(headers["Authorization"]).toBe("Bearer tok_explicit");
   });
 
-  it("getMe calls GET /auth/me without explicit token (uses client auth)", async () => {
+  it("getMe without resolver uses explicit no-refresh transport", async () => {
     const client = mockClient();
     (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "u1",
@@ -147,7 +170,69 @@ describe("createAuthApi", () => {
 
     const callArgs = (client.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const opts = callArgs[1] as RequestInit & { skipAuth?: boolean };
-    expect(opts.skipAuth).toBeUndefined();
+    expect(opts.skipAuth).toBe(true);
+  });
+
+  it("current-token getMe shares an active identity read then revalidates", async () => {
+    let resolveFirst!: (value: Response) => void;
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const fullUser = {
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer" as const,
+      orgId: "org_1",
+      roles: ["member"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ...fullUser, roles: [] }),
+      });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const client = mockClient();
+    const api = createAuthApi({ client, store });
+
+    store.setAccessToken("tok_current", 900);
+    const joined = api.getMe("tok_current");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFirst({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(fullUser),
+    } as Response);
+    await expect(joined).resolves.toMatchObject({ roles: ["member"] });
+
+    await expect(api.getMe("tok_current")).resolves.toMatchObject({ roles: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(client.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed explicit-token /auth/me without refreshing", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const store = mockStore();
+    const api = createAuthApi({ client, store });
+
+    await expect(api.getMe("tok_external")).rejects.toMatchObject({
+      status: 503,
+      code: "AUTHORITY_UNAVAILABLE",
+    });
+    expect(store.ensureAccessToken).not.toHaveBeenCalled();
   });
 
   it("logout calls POST /auth/logout", async () => {
@@ -157,7 +242,7 @@ describe("createAuthApi", () => {
 
     expect(client.fetch).toHaveBeenCalledWith(
       "/auth/logout",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({ method: "POST", skipAuth: true }),
     );
   });
 });

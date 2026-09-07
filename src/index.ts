@@ -3,11 +3,16 @@ export { createAuthClient } from "./auth-client.js";
 export { createAuthApi } from "./auth-api.js";
 export { validateUserType, hasEntitlement } from "./auth-guard.js";
 export { extractAccessToken } from "./extract-token.js";
+export {
+  captureSessionContinuity,
+  canReplaySession,
+} from "./session-continuity.js";
 
 export {
   AuthError,
   type AuthUser,
   type AuthStore,
+  type ConcreteAuthStore,
   type AuthStoreConfig,
   type AuthClient,
   type AuthClientConfig,
@@ -24,6 +29,11 @@ export {
   type DashboardLink,
   type SessionClaims,
   type SessionUserType,
+  type ResolveSessionOptions,
+  type SessionResolution,
+  type SessionState,
+  type SessionStateListener,
+  type SessionContinuity,
   type OrgChangeListener,
   type AccessTokenSetListener,
   type LogoutListener,

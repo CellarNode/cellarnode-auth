@@ -9,6 +9,7 @@ import type {
   VerifyOtpResponse,
 } from "./types.js";
 import { extractAccessToken } from "./extract-token.js";
+import { parseAuthUser } from "./auth-user.js";
 
 export function createAuthApi(config: {
   client: AuthClient;
@@ -64,18 +65,56 @@ export function createAuthApi(config: {
     },
 
     async logout() {
-      await client.fetch<void>("/auth/logout", { method: "POST" });
+      const token = store.getAccessToken();
+      await client.fetch<void>("/auth/logout", {
+        method: "POST",
+        skipAuth: true,
+        ...(token
+          ? { headers: { Authorization: `Bearer ${token}` } }
+          : {}),
+      });
     },
 
     async getMe(token?: string) {
-      if (token) {
-        return client.fetch<AuthUser>("/auth/me", {
+      const currentToken = store.getAccessToken();
+      if (store.resolveSession && (!token || token === currentToken)) {
+        const resolution = await store.resolveSession({ refresh: false });
+        if (resolution.status === "ready") return resolution.user;
+        if (resolution.status === "unauthorized") {
+          throw new AuthError(401, "UNAUTHORIZED", "Session is unauthorized");
+        }
+        if (resolution.status === "superseded") {
+          throw new AuthError(409, "SESSION_SUPERSEDED", "Session was superseded");
+        }
+        throw new AuthError(
+          503,
+          "AUTHORITY_UNAVAILABLE",
+          "Session identity is unavailable",
+        );
+      }
+
+      const raw = token
+        ? await client.fetch<unknown>("/auth/me", {
           method: "GET",
           skipAuth: true,
           headers: { Authorization: `Bearer ${token}` },
-        });
+        })
+        : await client.fetch<unknown>("/auth/me", {
+            method: "GET",
+            skipAuth: true,
+            ...(currentToken
+              ? { headers: { Authorization: `Bearer ${currentToken}` } }
+              : {}),
+          });
+      const user = parseAuthUser(raw);
+      if (!user) {
+        throw new AuthError(
+          503,
+          "AUTHORITY_UNAVAILABLE",
+          "Session identity is unavailable",
+        );
       }
-      return client.fetch<AuthUser>("/auth/me", { method: "GET" });
+      return user;
     },
   };
 }

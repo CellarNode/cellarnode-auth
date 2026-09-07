@@ -3,7 +3,7 @@ export interface AuthUser {
   email: string;
   name: string;
   phone?: string;
-  userType: "importer" | "producer" | "admin";
+  userType: SessionUserType | null;
   orgId: string | null;
   roles: string[];
   /**
@@ -68,6 +68,34 @@ export interface AuthStoreConfig {
  * advertises importer/producer/admin to consumers.
  */
 export type SessionUserType = "importer" | "producer" | "distributor" | "admin";
+
+export interface ResolveSessionOptions {
+  /** Rotate credentials before resolving authority. Defaults to true when no token exists. */
+  refresh?: boolean;
+  /** Cancels only this caller's wait. Shared refresh and identity adoption continue. */
+  signal?: AbortSignal;
+}
+
+export type SessionResolution =
+  | { status: "ready"; token: string; user: AuthUser }
+  | { status: "unavailable"; token: string | null }
+  | { status: "unauthorized" }
+  | { status: "superseded" };
+
+export type SessionState =
+  | { status: "ready"; token: string; user: AuthUser }
+  | { status: "resolving"; token: string | null }
+  | { status: "unavailable"; token: string | null }
+  | { status: "unauthorized" };
+
+export type SessionStateListener = (state: SessionState) => void;
+
+/** Validated authority captured before an authenticated transport starts. */
+export interface SessionContinuity {
+  token: string;
+  userId: string;
+  orgId: string | null;
+}
 
 /**
  * Decoded claims from a V2 access-token JWT.
@@ -142,6 +170,16 @@ export interface AuthStore {
   ensureAccessToken(forceRefresh?: boolean): Promise<string | null>;
 
   /**
+   * Resolve credentials and authoritative `/auth/me` identity as one guarded
+   * operation. Optional here so existing custom stores remain source-compatible.
+   * `createAuthStore()` always provides this method through `ConcreteAuthStore`.
+   */
+  resolveSession?(options?: ResolveSessionOptions): Promise<SessionResolution>;
+
+  /** Subscribe to guarded session-resolution state. Immediately receives a snapshot. */
+  onSessionStateChange?(listener: SessionStateListener): () => void;
+
+  /**
    * LOCAL-DEV ONLY — mint a session for `email` via the backend's
    * `POST /test/login`, bypassing the OTP round-trip (CEL-1364).
    *
@@ -208,6 +246,11 @@ export interface AuthStore {
 
   /** Subscribe to logout events. Returns unsubscribe. */
   onLogout(listener: LogoutListener): () => void;
+}
+
+export interface ConcreteAuthStore extends AuthStore {
+  resolveSession(options?: ResolveSessionOptions): Promise<SessionResolution>;
+  onSessionStateChange(listener: SessionStateListener): () => void;
 }
 
 export interface AuthClientConfig {

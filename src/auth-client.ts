@@ -1,5 +1,9 @@
 import { AuthError } from "./types.js";
 import type { AuthClientConfig, AuthClient, AuthErrorResponse } from "./types.js";
+import {
+  canReplaySession,
+  captureSessionContinuity,
+} from "./session-continuity.js";
 
 export function createAuthClient(config: AuthClientConfig): AuthClient {
   const { baseUrl, store, onAuthFailure } = config;
@@ -30,12 +34,20 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     ): Promise<T> {
       const { skipAuth, ...init } = options ?? {};
       const headers = new Headers(init.headers);
+      const continuity = skipAuth ? null : captureSessionContinuity(store);
 
       if (!skipAuth) {
         const token = store.getAccessToken();
-        if (token) {
-          headers.set("Authorization", `Bearer ${token}`);
+        if (!continuity) {
+          throw token
+            ? new AuthError(
+                503,
+                "SESSION_UNAVAILABLE",
+                "Session identity is unavailable",
+              )
+            : new AuthError(401, "UNAUTHORIZED", "Session is unauthorized");
         }
+        headers.set("Authorization", `Bearer ${continuity.token}`);
       }
 
       if (!headers.has("Content-Type") && init.body) {
@@ -54,23 +66,64 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         return (await res.json()) as T;
       }
 
-      // 401: attempt one refresh + retry (only for authenticated requests)
+      // 401: refresh once. Replay only when validated user + tenant continuity
+      // matches the authority captured before original transport.
       if (res.status === 401 && !skipAuth) {
-        const newToken = await store.ensureAccessToken(true);
-        if (newToken) {
-          headers.set("Authorization", `Bearer ${newToken}`);
-          const retryRes = await fetch(url, {
-            ...init,
-            headers,
-            credentials: "include",
+        if (store.resolveSession) {
+          const resolution = await store.resolveSession({
+            refresh: true,
+            signal: init.signal ?? undefined,
           });
-          if (retryRes.ok) {
-            return (await retryRes.json()) as T;
+          if (
+            resolution.status === "ready" &&
+            canReplaySession(continuity, resolution, store)
+          ) {
+            headers.set("Authorization", `Bearer ${resolution.token}`);
+            const retryRes = await fetch(url, {
+              ...init,
+              headers,
+              credentials: "include",
+            });
+            if (retryRes.ok) return (await retryRes.json()) as T;
+
+            const retryError = await parseErrorResponse(retryRes);
+            throw new AuthError(
+              retryRes.status,
+              retryError.code,
+              retryError.error,
+              retryError.remainingAttempts,
+            );
           }
+          if (resolution.status === "unavailable") {
+            throw new AuthError(
+              503,
+              "SESSION_UNAVAILABLE",
+              "Session identity is unavailable",
+            );
+          }
+          if (resolution.status === "superseded") {
+            if (init.signal?.aborted) {
+              throw new DOMException("Request aborted", "AbortError");
+            }
+            throw new AuthError(
+              409,
+              "SESSION_SUPERSEDED",
+              "Request session was superseded",
+            );
+          }
+          if (resolution.status === "ready") {
+            throw new AuthError(
+              409,
+              "SESSION_CONTINUITY_CHANGED",
+              "Request session authority changed",
+            );
+          }
+          onAuthFailure?.();
+        } else {
+          // Legacy custom stores cannot prove post-refresh continuity.
+          store.clearAccessToken();
+          onAuthFailure?.();
         }
-        // Refresh failed or retry failed
-        store.clearAccessToken();
-        onAuthFailure?.();
       }
 
       const errBody = await parseErrorResponse(res);
