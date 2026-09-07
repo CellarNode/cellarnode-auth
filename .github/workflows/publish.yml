@@ -6,22 +6,94 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Scoped to this job, not the workflow: a job added to this file later
+    # would otherwise inherit `id-token: write` it does not need.
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci --legacy-peer-deps
-      - run: npm test
-      - run: npm run build
+      # npm Trusted Publishing (OIDC) needs npm CLI >= 11.5.1. Node 22 only
+      # bundles npm 10.x, so upgrade before anything else touches the
+      # registry. Pinned to the 11.x line, not `@latest`: npm 12 is already
+      # out and warns that setup-node's `always-auth` config "will stop
+      # working in the next major" — floating to `@latest` would silently
+      # pull that break in on some future run. See
+      # https://docs.npmjs.com/trusted-publishers.
+      - name: Upgrade npm for trusted publishing (needs npm >= 11.5.1)
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
 
+      # CEL-1733 — only publish when this push actually bumped the version.
+      # Without this gate every merge to main (docs, tests, refactors) would
+      # re-run `npm publish` against an already-published version.
+      #
+      # Compare against the push event's previous main SHA
+      # (`github.event.before`) rather than `HEAD~1`: this repo allows rebase
+      # merges, and a rebase merge can push several commits at once, making
+      # `HEAD~1` the PR's second-to-last commit rather than the pre-merge tip
+      # of main — a version bump that isn't the newest commit would silently
+      # be skipped. `before` is the all-zeros SHA on the first push to a new
+      # branch (nothing to diff against, so PREVIOUS_VERSION stays empty);
+      # if it is set but can't be fetched (e.g. an older/replayed event) we
+      # fall back to the previous `HEAD~1` comparison.
+      - name: Check whether package.json version changed
+        id: version
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          BEFORE_SHA="${{ github.event.before }}"
+          PREVIOUS_VERSION=""
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            if git fetch --no-tags --depth=1 origin "$BEFORE_SHA" 2>/dev/null && \
+               git show "$BEFORE_SHA:package.json" > "$RUNNER_TEMP/prev-package.json" 2>/dev/null; then
+              PREVIOUS_VERSION=$(node -p "require('$RUNNER_TEMP/prev-package.json').version")
+            elif git show HEAD~1:package.json > "$RUNNER_TEMP/prev-package.json" 2>/dev/null; then
+              PREVIOUS_VERSION=$(node -p "require('$RUNNER_TEMP/prev-package.json').version")
+            fi
+          fi
+          if [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "package.json version ($CURRENT_VERSION) is unchanged since the previous commit on main — skipping the rest of the publish job."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "package.json version changed: ${PREVIOUS_VERSION:-<none>} -> $CURRENT_VERSION"
+          fi
+          echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+
+      # This job's OIDC request variables (ACTIONS_ID_TOKEN_REQUEST_URL /
+      # ACTIONS_ID_TOKEN_REQUEST_TOKEN) are visible to every step here, not
+      # just the publish step — so no untrusted script should run in this
+      # job. `--ignore-scripts` blocks install-time lifecycle scripts from
+      # this package's own (small, audited) dependency tree; verified
+      # `npm test` and `npm run build` still pass with it.
+      - name: Install dependencies
+        if: steps.version.outputs.changed == 'true'
+        run: npm ci --legacy-peer-deps --ignore-scripts
+
+      - name: Test
+        if: steps.version.outputs.changed == 'true'
+        run: npm test
+
+      - name: Build
+        if: steps.version.outputs.changed == 'true'
+        run: npm run build
+
+      # Belt-and-braces alongside the version-changed gate above: also skip
+      # if this exact version somehow already exists on npm (e.g. a retried
+      # workflow run). Public package, so `npm view` works unauthenticated.
       - name: Check if version exists on npm
         id: version-check
+        if: steps.version.outputs.changed == 'true'
         run: |
           PACKAGE_NAME=$(node -p "require('./package.json').name")
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
@@ -33,8 +105,15 @@ jobs:
             echo "Version ${PACKAGE_VERSION} not yet published."
           fi
 
+      # Trusted Publishing (OIDC): no NODE_AUTH_TOKEN / NPM_TOKEN anywhere in
+      # this job. The npm CLI detects the GitHub Actions OIDC environment
+      # (this job's `id-token: write` permission) and exchanges it for a
+      # short-lived publish token itself — requires the npmjs.com Trusted
+      # Publisher config to exist first (Organization CellarNode, Repository
+      # cellarnode-auth, Workflow publish.yml, no Environment — see CEL-1733).
+      # Provenance is generated automatically here and needs no flag: this
+      # is a public repo publishing a public package, the only combination
+      # npm signs by default.
       - name: Publish
-        if: steps.version-check.outputs.exists == 'false'
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.version.outputs.changed == 'true' && steps.version-check.outputs.exists == 'false'
+        run: npm publish --access public
