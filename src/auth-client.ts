@@ -3,6 +3,7 @@ import type { AuthClientConfig, AuthClient, AuthErrorResponse } from "./types.js
 import {
   canReplaySession,
   captureSessionContinuity,
+  resolveSessionForReplay,
 } from "./session-continuity.js";
 
 export function createAuthClient(config: AuthClientConfig): AuthClient {
@@ -56,6 +57,24 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
 
       const url = `${baseUrl}${path}`;
 
+      const retryWithToken = async (token: string): Promise<T> => {
+        headers.set("Authorization", `Bearer ${token}`);
+        const retryRes = await fetch(url, {
+          ...init,
+          headers,
+          credentials: "include",
+        });
+        if (retryRes.ok) return (await retryRes.json()) as T;
+
+        const retryError = await parseErrorResponse(retryRes);
+        throw new AuthError(
+          retryRes.status,
+          retryError.code,
+          retryError.error,
+          retryError.remainingAttempts,
+        );
+      };
+
       const res = await fetch(url, {
         ...init,
         headers,
@@ -69,30 +88,32 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
       // 401: refresh once. Replay only when validated user + tenant continuity
       // matches the authority captured before original transport.
       if (res.status === 401 && !skipAuth) {
-        if (store.resolveSession) {
-          const resolution = await store.resolveSession({
-            refresh: true,
+        if (!store.resolveSession) {
+          const current = captureSessionContinuity(store);
+          if (
+            !continuity ||
+            !current ||
+            current.token !== continuity.token ||
+            current.userId !== continuity.userId ||
+            current.orgId !== continuity.orgId
+          ) {
+            throw new AuthError(
+              409,
+              "SESSION_SUPERSEDED",
+              "Request session was superseded",
+            );
+          }
+          store.clearAccessToken();
+          if (store.getAccessToken() === null) onAuthFailure?.();
+        } else {
+          const resolution = await resolveSessionForReplay(store, continuity, {
             signal: init.signal ?? undefined,
           });
           if (
             resolution.status === "ready" &&
             canReplaySession(continuity, resolution, store)
           ) {
-            headers.set("Authorization", `Bearer ${resolution.token}`);
-            const retryRes = await fetch(url, {
-              ...init,
-              headers,
-              credentials: "include",
-            });
-            if (retryRes.ok) return (await retryRes.json()) as T;
-
-            const retryError = await parseErrorResponse(retryRes);
-            throw new AuthError(
-              retryRes.status,
-              retryError.code,
-              retryError.error,
-              retryError.remainingAttempts,
-            );
+            return retryWithToken(resolution.token);
           }
           if (resolution.status === "unavailable") {
             throw new AuthError(
@@ -112,16 +133,24 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
             );
           }
           if (resolution.status === "ready") {
+            const currentState = store.getSessionState?.();
+            if (
+              (currentState?.status === "resolving" ||
+                currentState?.status === "unavailable") &&
+              currentState.token === resolution.token
+            ) {
+              throw new AuthError(
+                503,
+                "SESSION_UNAVAILABLE",
+                "Session identity is unavailable",
+              );
+            }
             throw new AuthError(
               409,
               "SESSION_CONTINUITY_CHANGED",
               "Request session authority changed",
             );
           }
-          onAuthFailure?.();
-        } else {
-          // Legacy custom stores cannot prove post-refresh continuity.
-          store.clearAccessToken();
           onAuthFailure?.();
         }
       }

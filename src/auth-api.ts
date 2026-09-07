@@ -3,10 +3,10 @@ import type {
   AuthApi,
   AuthClient,
   AuthStore,
-  AuthUser,
   RegisterInput,
   RequestOtpResponse,
   VerifyOtpResponse,
+  VerifyOtpUser,
 } from "./types.js";
 import { extractAccessToken } from "./extract-token.js";
 import { parseAuthUser } from "./auth-user.js";
@@ -60,7 +60,7 @@ export function createAuthApi(config: {
       return {
         accessToken: token,
         expiresIn,
-        user: raw.user as AuthUser,
+        user: raw.user as VerifyOtpUser,
       };
     },
 
@@ -77,8 +77,9 @@ export function createAuthApi(config: {
 
     async getMe(token?: string) {
       const currentToken = store.getAccessToken();
-      if (store.resolveSession && (!token || token === currentToken)) {
-        const resolution = await store.resolveSession({ refresh: false });
+      const explicitCurrentToken = token !== undefined && token === currentToken;
+      if (store.resolveSession && token === undefined) {
+        const resolution = await store.resolveSession();
         if (resolution.status === "ready") return resolution.user;
         if (resolution.status === "unauthorized") {
           throw new AuthError(401, "UNAUTHORIZED", "Session is unauthorized");
@@ -93,7 +94,7 @@ export function createAuthApi(config: {
         );
       }
 
-      const raw = token
+      const raw = token !== undefined
         ? await client.fetch<unknown>("/auth/me", {
           method: "GET",
           skipAuth: true,
@@ -106,6 +107,9 @@ export function createAuthApi(config: {
               ? { headers: { Authorization: `Bearer ${currentToken}` } }
               : {}),
           });
+      if (explicitCurrentToken && store.getAccessToken() !== token) {
+        throw new AuthError(409, "SESSION_SUPERSEDED", "Session was superseded");
+      }
       const user = parseAuthUser(raw);
       if (!user) {
         throw new AuthError(

@@ -28,10 +28,21 @@ export interface RequestOtpResponse {
   resendAvailableAt: string;
 }
 
+/** Sparse user projection returned inline by `/auth/verify-otp`. */
+export interface VerifyOtpUser {
+  id: string;
+  email: string;
+  name: string;
+  phone: string;
+  userType: SessionUserType | null;
+  orgId: string | null;
+  roles: string[];
+}
+
 export interface VerifyOtpResponse {
   accessToken: string;
   expiresIn: number;
-  user: AuthUser;
+  user: VerifyOtpUser;
 }
 
 export interface AuthErrorResponse {
@@ -56,6 +67,8 @@ export interface AuthStoreConfig {
   baseUrl: string;
   refreshPath?: string;
   refreshBuffer?: number;
+  /** Maximum duration for internal refresh and identity requests. Default 10000ms. */
+  resolutionTimeoutMs?: number;
 }
 
 /**
@@ -179,6 +192,9 @@ export interface AuthStore {
   /** Subscribe to guarded session-resolution state. Immediately receives a snapshot. */
   onSessionStateChange?(listener: SessionStateListener): () => void;
 
+  /** Return current guarded session state as a defensive snapshot. */
+  getSessionState?(): SessionState;
+
   /**
    * LOCAL-DEV ONLY — mint a session for `email` via the backend's
    * `POST /test/login`, bypassing the OTP round-trip (CEL-1364).
@@ -251,6 +267,7 @@ export interface AuthStore {
 export interface ConcreteAuthStore extends AuthStore {
   resolveSession(options?: ResolveSessionOptions): Promise<SessionResolution>;
   onSessionStateChange(listener: SessionStateListener): () => void;
+  getSessionState(): SessionState;
 }
 
 export interface AuthClientConfig {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAuthClient } from "../src/auth-client.js";
 import { createAuthStore } from "../src/auth-store.js";
 import type { AuthUser } from "../src/types.js";
 
@@ -116,6 +117,37 @@ describe("atomic session resolution (CEL-1782)", () => {
     ]);
   });
 
+  it("blocks transport started synchronously by a resolving observer", async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(
+        response(url.endsWith("/auth/me") ? userA : { data: "sent" }),
+      ),
+    );
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await flush();
+    const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
+    let attemptedWrite: Promise<unknown> | null = null;
+    store.onSessionStateChange((state) => {
+      if (state.status === "resolving") {
+        attemptedWrite = client.fetch("/api/write");
+      }
+    });
+
+    store.setAccessToken("tok_b", 900);
+
+    expect(store.getUserId()).toBeNull();
+    expect(attemptedWrite).not.toBeNull();
+    await expect(attemptedWrite).rejects.toMatchObject({
+      status: 503,
+      code: "SESSION_UNAVAILABLE",
+    });
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/api/write")),
+    ).toHaveLength(0);
+  });
+
   it("deduplicates timer and manual refresh into one refresh and identity flight", async () => {
     vi.useFakeTimers();
     const refresh = deferred<Response>();
@@ -140,6 +172,70 @@ describe("atomic session resolution (CEL-1782)", () => {
 
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"))).toHaveLength(1);
     expect(identityCalls).toBe(2);
+  });
+
+  it("installs refresh flight before publishing resolving to reentrant observers", async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(
+        url.includes("/auth/refresh")
+          ? response({ accessToken: "tok_b", expiresIn: 900 })
+          : response(userA),
+      ),
+    );
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    let nested: Promise<unknown> | null = null;
+    const unsubscribe = store.onSessionStateChange((state) => {
+      if (state.status === "resolving" && state.token === "tok_a" && !nested) {
+        nested = store.resolveSession({ refresh: true });
+      }
+    });
+    const outer = store.resolveSession({ refresh: true });
+
+    await expect(outer).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    await expect(nested).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    unsubscribe();
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh")),
+    ).toHaveLength(1);
+  });
+
+  it("joins non-refresh callers to refresh and suppresses prior identity commit", async () => {
+    const staleIdentity = deferred<Response>();
+    const refresh = deferred<Response>();
+    let identityCalls = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/auth/refresh")) return refresh.promise;
+      identityCalls += 1;
+      if (identityCalls === 2) return staleIdentity.promise;
+      const token = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(
+        response(token === "Bearer tok_b" ? { ...userA, roles: [] } : userA),
+      );
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const stale = store.resolveSession({ refresh: false });
+    const refreshing = store.resolveSession({ refresh: true });
+    const joined = store.resolveSession({ refresh: false });
+    staleIdentity.resolve(response({ ...userA, roles: ["stale"] }));
+    await expect(stale).resolves.toEqual({ status: "superseded" });
+    expect(store.getUserId()).toBeNull();
+
+    refresh.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+    await expect(refreshing).resolves.toMatchObject({
+      status: "ready",
+      token: "tok_b",
+      user: { roles: [] },
+    });
+    await expect(joined).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    expect(identityCalls).toBe(3);
   });
 
   it("logout during refresh cannot resurrect credentials", async () => {
@@ -204,7 +300,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     const store = createAuthStore({ baseUrl: "http://localhost:4000" });
     store.onAccessTokenSet((token) => tokenEvents.push(token));
     store.setAccessToken("tok_a", 900);
-    await flush();
+    await store.resolveSession({ refresh: false });
 
     const result = await store.resolveSession({ refresh: false });
     expect(result).toMatchObject({ status: "ready", token: "tok_b" });
@@ -229,7 +325,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     global.fetch = fetchMock as typeof fetch;
     const store = createAuthStore({ baseUrl: "http://localhost:4000" });
     store.setAccessToken("tok_a", 900);
-    await flush();
+    await store.resolveSession({ refresh: false });
 
     await expect(store.resolveSession({ refresh: false })).resolves.toEqual({
       status: "unavailable",
@@ -278,7 +374,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     const orgChange = vi.fn();
     store.onOrgChange(orgChange);
     store.setAccessToken("tok_a", 900);
-    await flush();
+    await store.resolveSession({ refresh: false });
     orgChange.mockClear();
 
     mode = "unavailable";
@@ -338,5 +434,158 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(result).toEqual({ status: "superseded" });
     expect(store.getAccessToken()).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/refresh"))).toBe(false);
+  });
+
+  it("returns superseded when unauthorized observer installs replacement", async () => {
+    const unauthorized = deferred<Response>();
+    let identityCalls = 0;
+    global.fetch = vi.fn((_url: string, init?: RequestInit) => {
+      identityCalls += 1;
+      if (identityCalls === 2) return unauthorized.promise;
+      const token = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(
+        response(token === "Bearer tok_b" ? { ...userA, orgId: "org_b" } : userA),
+      );
+    }) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+    const tokenEvents: Array<string | null> = [];
+    const logout = vi.fn();
+    store.onAccessTokenSet((token) => tokenEvents.push(token));
+    store.onLogout(logout);
+    store.onSessionStateChange((state) => {
+      if (state.status === "unauthorized") store.setAccessToken("tok_b", 900);
+    });
+    const staleUnauthorized = vi.fn();
+    store.onSessionStateChange((state) => {
+      if (state.status === "unauthorized") staleUnauthorized();
+    });
+
+    const stale = store.resolveSession({ refresh: false });
+    unauthorized.resolve(response({ code: "UNAUTHORIZED" }, 401));
+
+    await expect(stale).resolves.toEqual({ status: "superseded" });
+    await store.resolveSession({ refresh: false });
+    expect(store.getAccessToken()).toBe("tok_b");
+    expect(store.getOrgId()).toBe("org_b");
+    expect(tokenEvents).not.toContain(null);
+    expect(logout).not.toHaveBeenCalled();
+    expect(staleUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("suppresses stale logout when clear observer installs replacement", async () => {
+    global.fetch = vi.fn((_url: string, init?: RequestInit) => {
+      const token = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(
+        response(token === "Bearer tok_b" ? { ...userA, orgId: "org_b" } : userA),
+      );
+    }) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+    const tokenEvents: Array<string | null> = [];
+    const logout = vi.fn();
+    store.onAccessTokenSet((token) => tokenEvents.push(token));
+    store.onLogout(logout);
+    store.onSessionStateChange((state) => {
+      if (state.status === "unauthorized") store.setAccessToken("tok_b", 900);
+    });
+
+    store.clearAccessToken();
+    await store.resolveSession({ refresh: false });
+
+    expect(store.getAccessToken()).toBe("tok_b");
+    expect(tokenEvents).not.toContain(null);
+    expect(logout).not.toHaveBeenCalled();
+  });
+
+  it("does not publish legacy token-set event for unavailable authority", async () => {
+    let unavailable = false;
+    global.fetch = vi.fn(() =>
+      Promise.resolve(
+        unavailable
+          ? response({ code: "AUTHORITY_UNAVAILABLE" }, 503)
+          : response(userA),
+      ),
+    ) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const tokenSet = vi.fn();
+    store.onAccessTokenSet(tokenSet);
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+    tokenSet.mockClear();
+
+    unavailable = true;
+    await expect(store.resolveSession({ refresh: false })).resolves.toEqual({
+      status: "unavailable",
+      token: "tok_a",
+    });
+    expect(tokenSet).not.toHaveBeenCalled();
+  });
+
+  it("times out hung identity flight and permits retry", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    global.fetch = vi.fn(() => {
+      calls += 1;
+      return calls === 1
+        ? Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => new Promise<unknown>(() => {}),
+          } as Response)
+        : Promise.resolve(response(userA));
+    }) as typeof fetch;
+    const store = createAuthStore({
+      baseUrl: "http://localhost:4000",
+      resolutionTimeoutMs: 50,
+    });
+    store.setAccessToken("tok_a", 900);
+    const timedOut = store.resolveSession({ refresh: false });
+
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(timedOut).resolves.toEqual({
+      status: "unavailable",
+      token: "tok_a",
+    });
+    await expect(store.resolveSession({ refresh: false })).resolves.toMatchObject({
+      status: "ready",
+    });
+    expect(calls).toBe(2);
+  });
+
+  it("times out hung refresh flight and permits retry", async () => {
+    vi.useFakeTimers();
+    let refreshCalls = 0;
+    global.fetch = vi.fn((url: string) => {
+      if (!url.includes("/auth/refresh")) return Promise.resolve(response(userA));
+      refreshCalls += 1;
+      return refreshCalls === 1
+        ? Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => new Promise<unknown>(() => {}),
+          } as Response)
+        : Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+    }) as typeof fetch;
+    const store = createAuthStore({
+      baseUrl: "http://localhost:4000",
+      resolutionTimeoutMs: 50,
+    });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+    const timedOut = store.resolveSession({ refresh: true });
+
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(timedOut).resolves.toEqual({
+      status: "unavailable",
+      token: "tok_a",
+    });
+    await expect(store.resolveSession({ refresh: true })).resolves.toMatchObject({
+      status: "ready",
+      token: "tok_b",
+    });
+    expect(refreshCalls).toBe(2);
   });
 });

@@ -6,6 +6,7 @@ export { extractAccessToken } from "./extract-token.js";
 export {
   captureSessionContinuity,
   canReplaySession,
+  resolveSessionForReplay,
 } from "./session-continuity.js";
 
 export {
@@ -20,6 +21,7 @@ export {
   type RegisterInput,
   type RequestOtpResponse,
   type VerifyOtpResponse,
+  type VerifyOtpUser,
   type AuthErrorResponse,
   type DevLoginResult,
   type DevLoginSuccess,

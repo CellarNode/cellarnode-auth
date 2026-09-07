@@ -16,6 +16,7 @@ import type {
 } from "./types.js";
 
 const DEFAULT_ACCESS_TOKEN_TTL = 900;
+const DEFAULT_RESOLUTION_TIMEOUT_MS = 10_000;
 
 const DEV_LOGIN_MESSAGES = {
   "test-endpoints-disabled":
@@ -61,7 +62,16 @@ function copyResolution(resolution: SessionResolution): SessionResolution {
 }
 
 export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
-  const { baseUrl, refreshPath = "/auth/refresh", refreshBuffer = 60 } = config;
+  const {
+    baseUrl,
+    refreshPath = "/auth/refresh",
+    refreshBuffer = 60,
+    resolutionTimeoutMs = DEFAULT_RESOLUTION_TIMEOUT_MS,
+  } = config;
+  const requestTimeoutMs =
+    Number.isFinite(resolutionTimeoutMs) && resolutionTimeoutMs > 0
+      ? resolutionTimeoutMs
+      : DEFAULT_RESOLUTION_TIMEOUT_MS;
 
   let accessToken: string | null = null;
   let identity: AuthUser | null = null;
@@ -88,23 +98,31 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   const stateQueue: SessionState[] = [];
   let publishingState = false;
 
-  function emitOrgChange(orgId: string | null): void {
+  function emitOrgChange(
+    orgId: string | null,
+    shouldContinue: () => boolean = () => true,
+  ): void {
     for (const listener of orgChangeListeners) {
       try {
         listener(orgId);
       } catch {
         // Subscriber failures cannot break other observers or session adoption.
       }
+      if (!shouldContinue()) break;
     }
   }
 
-  function emitAccessTokenSet(token: string | null): void {
+  function emitAccessTokenSet(
+    token: string | null,
+    shouldContinue: () => boolean = () => true,
+  ): void {
     for (const listener of accessTokenSetListeners) {
       try {
         listener(token);
       } catch {
         // Subscriber failures cannot break other observers or session adoption.
       }
+      if (!shouldContinue()) break;
     }
   }
 
@@ -128,11 +146,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         if (!published) continue;
         sessionState = published;
         for (const listener of sessionStateListeners) {
+          const queuedBeforeCallback = stateQueue.length;
           try {
             listener(copySessionState(published));
           } catch {
             // Observers cannot veto or interrupt global session resolution.
           }
+          if (stateQueue.length > queuedBeforeCallback) break;
         }
       }
     } finally {
@@ -159,10 +179,51 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }, delay);
   }
 
+  function withResolutionTimeout<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("Session resolution request timed out"));
+      }, requestTimeoutMs);
+      let pending: Promise<T>;
+      try {
+        pending = operation(controller.signal);
+      } catch (error) {
+        clearTimeout(timer);
+        reject(error);
+        return;
+      }
+      void pending.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  function fetchResolutionResponse(
+    url: string,
+    init: RequestInit,
+  ): Promise<{ response: Response; raw: unknown }> {
+    return withResolutionTimeout(async (signal) => {
+      const response = await fetch(url, { ...init, signal });
+      const raw = response.ok ? await response.json() : null;
+      return { response, raw };
+    });
+  }
+
   async function fetchIdentity(token: string): Promise<IdentityRead> {
-    let response: Response;
+    let result: { response: Response; raw: unknown };
     try {
-      response = await fetch(`${baseUrl}/auth/me`, {
+      result = await fetchResolutionResponse(`${baseUrl}/auth/me`, {
         method: "GET",
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
@@ -171,17 +232,11 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       return { status: "unavailable" };
     }
 
+    const { response, raw } = result;
     if (response.status === 401 || response.status === 403) {
       return { status: "unauthorized" };
     }
     if (!response.ok) return { status: "unavailable" };
-
-    let raw: unknown;
-    try {
-      raw = await response.json();
-    } catch {
-      return { status: "unavailable" };
-    }
 
     const user = parseAuthUser(raw);
     return user
@@ -197,6 +252,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     identity = null;
     continuityBaseline = null;
     pendingRefreshBaseline = null;
+    identityFlight = null;
+    refreshFlight = null;
     previousOrgId = null;
     hasEmittedOrgId = false;
     if (refreshTimer) {
@@ -204,10 +261,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       refreshTimer = null;
     }
     publishSessionState({ status: "unauthorized" });
-    if (tokenGeneration === clearedGeneration && accessToken === null) {
-      emitAccessTokenSet(null);
-    }
-    return true;
+    if (tokenGeneration !== clearedGeneration || accessToken !== null) return false;
+    emitAccessTokenSet(
+      null,
+      () => tokenGeneration === clearedGeneration && accessToken === null,
+    );
+    return tokenGeneration === clearedGeneration && accessToken === null;
   }
 
   function markUnavailable(
@@ -219,16 +278,6 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
     identity = null;
     publishSessionState({ status: "unavailable", token });
-    if (generation !== tokenGeneration || accessToken !== token) {
-      return { status: "superseded" };
-    }
-    if (
-      token &&
-      generation === tokenGeneration &&
-      accessToken === token
-    ) {
-      emitAccessTokenSet(token);
-    }
     if (generation !== tokenGeneration || accessToken !== token) {
       return { status: "superseded" };
     }
@@ -253,14 +302,20 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     if (generation !== tokenGeneration || accessToken !== token) {
       return { status: "superseded" };
     }
-    emitAccessTokenSet(token);
+    emitAccessTokenSet(
+      token,
+      () => generation === tokenGeneration && accessToken === token,
+    );
     if (generation !== tokenGeneration || accessToken !== token) {
       return { status: "superseded" };
     }
     if (!hasEmittedOrgId || nextOrgId !== previousOrgId) {
       hasEmittedOrgId = true;
       previousOrgId = nextOrgId;
-      emitOrgChange(nextOrgId);
+      emitOrgChange(
+        nextOrgId,
+        () => generation === tokenGeneration && accessToken === token,
+      );
     }
 
     if (generation !== tokenGeneration || accessToken !== token) {
@@ -270,55 +325,81 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     return { status: "ready", token, user: copyAuthUser(identity) };
   }
 
-  function resolveIdentity(
+  async function evaluateIdentity(
     generation: number,
     token: string,
     baseline: ReadyBaseline | null,
     refreshed: boolean,
   ): Promise<SessionResolution> {
+    const read = await fetchIdentity(token);
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
+
+    if (read.status === "unauthorized") {
+      return clearCurrentGeneration(generation)
+        ? { status: "unauthorized" }
+        : { status: "superseded" };
+    }
+    if (read.status === "unavailable") {
+      return markUnavailable(generation, token);
+    }
+
+    if (baseline && read.user.id !== baseline.user.id) {
+      if (!refreshed) return runRefresh(generation, baseline);
+      return clearCurrentGeneration(generation)
+        ? { status: "unauthorized" }
+        : { status: "superseded" };
+    }
+
+    if (baseline && read.user.orgId !== baseline.user.orgId) {
+      if (!refreshed) {
+        // Same-token raw membership changes are not authority. Rotate once,
+        // then validate fresh credentials before adopting the transition.
+        return runRefresh(generation, baseline);
+      }
+      if (token === baseline.token) {
+        return markUnavailable(generation, token);
+      }
+    }
+
+    return commitReady(generation, token, read.user);
+  }
+
+  function startIdentityFlight(
+    generation: number,
+    token: string,
+    baseline: ReadyBaseline | null,
+    refreshed: boolean,
+    notifyResolving: boolean,
+  ): Promise<SessionResolution> {
     if (identityFlight?.generation === generation) {
       return identityFlight.promise;
     }
 
-    let flight!: IdentityFlight;
-    const promise = (async (): Promise<SessionResolution> => {
-      const read = await fetchIdentity(token);
-      if (generation !== tokenGeneration || accessToken !== token) {
-        return { status: "superseded" };
-      }
-
-      if (read.status === "unauthorized") {
-        clearCurrentGeneration(generation);
-        return { status: "unauthorized" };
-      }
-      if (read.status === "unavailable") {
-        return markUnavailable(generation, token);
-      }
-
-      if (baseline && read.user.id !== baseline.user.id) {
-        if (!refreshed) return runRefresh(generation, baseline);
-        clearCurrentGeneration(generation);
-        return { status: "unauthorized" };
-      }
-
-      if (baseline && read.user.orgId !== baseline.user.orgId) {
-        if (!refreshed) {
-          // Same-token raw membership changes are not authority. Rotate once,
-          // then validate fresh credentials before adopting the transition.
-          return runRefresh(generation, baseline);
-        }
-        if (token === baseline.token) {
-          return markUnavailable(generation, token);
-        }
-      }
-
-      return commitReady(generation, token, read.user);
-    })().finally(() => {
-      if (identityFlight === flight) identityFlight = null;
+    let settle!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => {
+      settle = resolve;
     });
-
-    flight = { generation, promise };
+    const flight: IdentityFlight = { generation, promise };
     identityFlight = flight;
+
+    if (notifyResolving && !beginResolving(generation, token)) {
+      if (identityFlight === flight) identityFlight = null;
+      settle({ status: "superseded" });
+      return promise;
+    }
+
+    void evaluateIdentity(generation, token, baseline, refreshed).then(
+      (result) => {
+        if (identityFlight === flight) identityFlight = null;
+        settle(result);
+      },
+      () => {
+        if (identityFlight === flight) identityFlight = null;
+        settle(markUnavailable(generation, token));
+      },
+    );
     return promise;
   }
 
@@ -333,51 +414,79 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     generation: number,
     baseline: ReadyBaseline | null,
   ): Promise<SessionResolution> {
-    if (refreshFlight?.generation === generation) {
-      return refreshFlight.promise;
-    }
+    if (refreshFlight) return refreshFlight.promise;
     if (generation !== tokenGeneration) {
       return Promise.resolve({ status: "superseded" });
     }
 
-    if (!beginResolving(generation, accessToken)) {
-      return Promise.resolve({ status: "superseded" });
+    if (!baseline && identityFlight?.generation === generation) {
+      const pendingIdentity = identityFlight.promise;
+      return pendingIdentity.then((result) => {
+        if (result.status === "ready") {
+          return runRefresh(tokenGeneration, {
+            token: result.token,
+            user: copyAuthUser(result.user),
+          });
+        }
+        if (
+          result.status === "unavailable" &&
+          generation === tokenGeneration &&
+          accessToken !== null
+        ) {
+          return runRefresh(tokenGeneration, null);
+        }
+        return result;
+      });
     }
 
-    let flight!: RefreshFlight;
-    const promise = (async (): Promise<SessionResolution> => {
-      let response: Response;
+    let settle!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => {
+      settle = resolve;
+    });
+    const flight: RefreshFlight = { generation, promise };
+    refreshFlight = flight;
+
+    if (!beginResolving(generation, accessToken)) {
+      if (refreshFlight === flight) refreshFlight = null;
+      settle({ status: "superseded" });
+      return promise;
+    }
+
+    // Refresh owns a new operation generation before transport begins. Any
+    // older identity read can no longer publish authority while refresh waits.
+    tokenGeneration += 1;
+    const refreshGeneration = tokenGeneration;
+    flight.generation = refreshGeneration;
+
+    void (async (): Promise<SessionResolution> => {
+      let result: { response: Response; raw: unknown };
       try {
-        response = await fetch(`${baseUrl}${refreshPath}`, {
+        result = await fetchResolutionResponse(`${baseUrl}${refreshPath}`, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
         });
       } catch {
-        return markUnavailable(generation, accessToken);
+        return markUnavailable(refreshGeneration, accessToken);
       }
 
-      if (generation !== tokenGeneration) return { status: "superseded" };
+      const { response, raw } = result;
+      if (refreshGeneration !== tokenGeneration) return { status: "superseded" };
       if (response.status === 401 || response.status === 403) {
-        clearCurrentGeneration(generation);
-        return { status: "unauthorized" };
+        return clearCurrentGeneration(refreshGeneration)
+          ? { status: "unauthorized" }
+          : { status: "superseded" };
       }
-      if (!response.ok) return markUnavailable(generation, accessToken);
+      if (!response.ok) return markUnavailable(refreshGeneration, accessToken);
 
-      let raw: unknown;
-      try {
-        raw = await response.json();
-      } catch {
-        return markUnavailable(generation, accessToken);
-      }
-      if (generation !== tokenGeneration) return { status: "superseded" };
+      if (refreshGeneration !== tokenGeneration) return { status: "superseded" };
       if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-        return markUnavailable(generation, accessToken);
+        return markUnavailable(refreshGeneration, accessToken);
       }
 
       const json = raw as Record<string, unknown>;
       const nextToken = extractAccessToken(json);
-      if (!nextToken) return markUnavailable(generation, accessToken);
+      if (!nextToken) return markUnavailable(refreshGeneration, accessToken);
 
       const expiresIn =
         typeof json.expiresIn === "number" && Number.isFinite(json.expiresIn)
@@ -396,13 +505,23 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         : null;
       scheduleRefresh(expiresIn);
 
-      return resolveIdentity(nextGeneration, nextToken, baseline, true);
-    })().finally(() => {
-      if (refreshFlight === flight) refreshFlight = null;
-    });
-
-    flight = { generation, promise };
-    refreshFlight = flight;
+      return startIdentityFlight(
+        nextGeneration,
+        nextToken,
+        baseline,
+        true,
+        false,
+      );
+    })().then(
+      (result) => {
+        if (refreshFlight === flight) refreshFlight = null;
+        settle(result);
+      },
+      () => {
+        if (refreshFlight === flight) refreshFlight = null;
+        settle(markUnavailable(refreshGeneration, accessToken));
+      },
+    );
     return promise;
   }
 
@@ -416,10 +535,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
     const baseline = currentBaseline();
     const refreshed = pendingRefreshBaseline !== null;
-    if (!beginResolving(generation, token)) {
-      return Promise.resolve({ status: "superseded" });
-    }
-    return resolveIdentity(generation, token, baseline, refreshed);
+    return startIdentityFlight(generation, token, baseline, refreshed, true);
   }
 
   function waitForCaller(
@@ -444,12 +560,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     if (!beginResolving(previousGeneration, token)) return;
     tokenGeneration += 1;
     const generation = tokenGeneration;
+    refreshFlight = null;
     accessToken = token;
     identity = null;
     continuityBaseline = null;
     pendingRefreshBaseline = null;
     scheduleRefresh(expiresIn);
-    void resolveIdentity(generation, token, null, false);
+    void startIdentityFlight(generation, token, null, false, false);
   }
 
   let store!: ConcreteAuthStore;
@@ -462,12 +579,18 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     },
 
     clearAccessToken() {
-      clearCurrentGeneration(tokenGeneration);
-      emitLogout();
+      if (clearCurrentGeneration(tokenGeneration)) emitLogout();
     },
 
     async ensureAccessToken(forceRefresh = false) {
-      if (!forceRefresh && accessToken && identity && !identityFlight) {
+      if (
+        !forceRefresh &&
+        accessToken &&
+        identity &&
+        !identityFlight &&
+        !refreshFlight &&
+        sessionState.status === "ready"
+      ) {
         return accessToken;
       }
       const result = forceRefresh
@@ -482,9 +605,11 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       const shouldRefresh =
         options.refresh === true ||
         (options.refresh === undefined && accessToken === null);
-      const operation = shouldRefresh
-        ? runRefresh(tokenGeneration, currentBaseline())
-        : resolveCurrentSession();
+      const operation = refreshFlight
+        ? refreshFlight.promise
+        : shouldRefresh
+          ? runRefresh(tokenGeneration, currentBaseline())
+          : resolveCurrentSession();
       return waitForCaller(operation, options.signal);
     },
 
@@ -580,6 +705,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     getUserType: () => identity?.userType ?? null,
     getEntitlements: () =>
       identity?.entitlements ? [...identity.entitlements] : [],
+
+    getSessionState: () => copySessionState(sessionState),
 
     onSessionStateChange(listener) {
       sessionStateListeners.add(listener);

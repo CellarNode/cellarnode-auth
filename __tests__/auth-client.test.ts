@@ -31,7 +31,9 @@ function mockStore(
     getAccessToken: vi.fn(() => currentToken),
     hasAccessToken: vi.fn().mockReturnValue(token !== null),
     setAccessToken: vi.fn(),
-    clearAccessToken: vi.fn(),
+    clearAccessToken: vi.fn(() => {
+      currentToken = null;
+    }),
     ensureAccessToken: vi.fn().mockResolvedValue(token),
     resolveSession: vi.fn(async () => {
       if (resolution.status === "ready") currentToken = resolution.token;
@@ -119,6 +121,69 @@ describe("createAuthClient", () => {
     expect(retryHeaders.get("Authorization")).toBe("Bearer tok_new");
   });
 
+  it("does not refresh replacement session after stale request returns 401", async () => {
+    let resolveFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const store = mockStore("tok_a");
+    const onAuthFailure = vi.fn();
+    global.fetch = vi.fn().mockReturnValue(first);
+    const client = createAuthClient({
+      baseUrl: "http://localhost:4000",
+      store,
+      onAuthFailure,
+    });
+
+    const staleRequest = client.fetch("/api/write");
+    const userB = { ...userA, id: "user_2", orgId: "org_b" };
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_b");
+    (store.getUserId as ReturnType<typeof vi.fn>).mockReturnValue(userB.id);
+    (store.getOrgId as ReturnType<typeof vi.fn>).mockReturnValue(userB.orgId);
+    store.getSessionState = vi.fn().mockReturnValue({
+      status: "ready",
+      token: "tok_b",
+      user: userB,
+    });
+    resolveFirst(response({ code: "UNAUTHORIZED" }, 401));
+
+    await expect(staleRequest).rejects.toMatchObject({
+      status: 409,
+      code: "SESSION_SUPERSEDED",
+    });
+    expect(store.resolveSession).not.toHaveBeenCalled();
+    expect(onAuthFailure).not.toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses ready rotated token for same user and org without refreshing", async () => {
+    let resolveFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const store = mockStore("tok_a");
+    global.fetch = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce(response({ data: "success" }));
+    const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
+
+    const staleRequest = client.fetch<{ data: string }>("/api/write");
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_b");
+    store.getSessionState = vi.fn().mockReturnValue({
+      status: "ready",
+      token: "tok_b",
+      user: userA,
+    });
+    resolveFirst(response({ code: "UNAUTHORIZED" }, 401));
+
+    await expect(staleRequest).resolves.toEqual({ data: "success" });
+    expect(store.resolveSession).not.toHaveBeenCalled();
+    const retryHeaders = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][1]
+      .headers as Headers;
+    expect(retryHeaders.get("Authorization")).toBe("Bearer tok_b");
+  });
+
   it("does not replay an org-A request after refresh resolves org B", async () => {
     const store = mockStore("tok_old", {
       status: "ready",
@@ -132,7 +197,7 @@ describe("createAuthClient", () => {
     const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
     await expect(client.fetch("/api/write")).rejects.toMatchObject({
       status: 409,
-      code: "SESSION_CONTINUITY_CHANGED",
+      code: "SESSION_SUPERSEDED",
     });
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(store.clearAccessToken).not.toHaveBeenCalled();
@@ -140,8 +205,15 @@ describe("createAuthClient", () => {
 
   it("does not replay when ready token was superseded before continuity check", async () => {
     const store = mockStore();
+    let superseded = false;
+    store.getSessionState = vi.fn(() =>
+      superseded
+        ? { status: "resolving", token: "tok_later" }
+        : { status: "ready", token: "tok_old", user: userA },
+    );
     (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_later");
+      superseded = true;
       return { status: "ready", token: "tok_new", user: userA };
     });
     global.fetch = vi
@@ -151,17 +223,24 @@ describe("createAuthClient", () => {
     const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
     await expect(client.fetch("/api/write")).rejects.toMatchObject({
       status: 409,
-      code: "SESSION_CONTINUITY_CHANGED",
+      code: "SESSION_SUPERSEDED",
     });
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("does not replay when same-token authority starts resolving again", async () => {
+  it("returns unavailable when same-token authority starts resolving again", async () => {
     const store = mockStore();
+    let authorityUnavailable = false;
+    store.getSessionState = vi.fn(() =>
+      authorityUnavailable
+        ? { status: "unavailable", token: "tok_new" }
+        : { status: "ready", token: "tok_old", user: userA },
+    );
     (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_new");
       (store.getUserId as ReturnType<typeof vi.fn>).mockReturnValue(null);
       (store.getOrgId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+      authorityUnavailable = true;
       return { status: "ready", token: "tok_new", user: userA };
     });
     global.fetch = vi
@@ -170,8 +249,8 @@ describe("createAuthClient", () => {
 
     const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
     await expect(client.fetch("/api/write")).rejects.toMatchObject({
-      status: 409,
-      code: "SESSION_CONTINUITY_CHANGED",
+      status: 503,
+      code: "SESSION_UNAVAILABLE",
     });
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
@@ -226,6 +305,95 @@ describe("createAuthClient", () => {
     expect(store.clearAccessToken).not.toHaveBeenCalled();
   });
 
+  it("preserves legacy no-resolver 401 logout behavior", async () => {
+    const store = mockStore("tok_old");
+    delete store.resolveSession;
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(response({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401));
+    const onAuthFailure = vi.fn();
+    const client = createAuthClient({
+      baseUrl: "http://localhost:4000",
+      store,
+      onAuthFailure,
+    });
+
+    await expect(client.fetch("/api/write")).rejects.toMatchObject({ status: 401 });
+    expect(store.clearAccessToken).toHaveBeenCalledTimes(1);
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clear replacement session in legacy no-resolver 401 path", async () => {
+    let resolveFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const store = mockStore("tok_a");
+    delete store.resolveSession;
+    const onAuthFailure = vi.fn();
+    global.fetch = vi.fn().mockReturnValue(first);
+    const client = createAuthClient({
+      baseUrl: "http://localhost:4000",
+      store,
+      onAuthFailure,
+    });
+
+    const staleRequest = client.fetch("/api/write");
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_b");
+    (store.getUserId as ReturnType<typeof vi.fn>).mockReturnValue("user_2");
+    (store.getOrgId as ReturnType<typeof vi.fn>).mockReturnValue("org_b");
+    resolveFirst(response({ code: "UNAUTHORIZED" }, 401));
+
+    await expect(staleRequest).rejects.toMatchObject({
+      status: 409,
+      code: "SESSION_SUPERSEDED",
+    });
+    expect(store.clearAccessToken).not.toHaveBeenCalled();
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it("suppresses stale unauthorized result after replacement installs", async () => {
+    const store = mockStore("tok_a", { status: "unauthorized" });
+    const userB = { ...userA, id: "user_2", orgId: "org_b" };
+    let replaced = false;
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      replaced ? "tok_b" : "tok_a",
+    );
+    (store.getUserId as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      replaced ? userB.id : userA.id,
+    );
+    (store.getOrgId as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      replaced ? userB.orgId : userA.orgId,
+    );
+    store.getSessionState = vi.fn(() =>
+      replaced
+        ? { status: "ready", token: "tok_b", user: userB }
+        : { status: "ready", token: "tok_a", user: userA },
+    );
+    (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      queueMicrotask(() => {
+        replaced = true;
+      });
+      return { status: "unauthorized" };
+    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(response({ code: "UNAUTHORIZED" }, 401));
+    const onAuthFailure = vi.fn();
+    const client = createAuthClient({
+      baseUrl: "http://localhost:4000",
+      store,
+      onAuthFailure,
+    });
+
+    await expect(client.fetch("/api/write")).rejects.toMatchObject({
+      status: 409,
+      code: "SESSION_SUPERSEDED",
+    });
+    expect(onAuthFailure).not.toHaveBeenCalled();
+    expect(store.clearAccessToken).not.toHaveBeenCalled();
+  });
+
   it("captures principal before transport and rejects foreign-user refresh", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/write")) {
@@ -242,9 +410,7 @@ describe("createAuthClient", () => {
     global.fetch = fetchMock as typeof fetch;
     const store = createAuthStore({ baseUrl: "http://localhost:4000" });
     store.setAccessToken("tok_a", 900);
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await store.resolveSession({ refresh: false });
     const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
 
     await expect(client.fetch("/api/write")).rejects.toMatchObject({ status: 401 });

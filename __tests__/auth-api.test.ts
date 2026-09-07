@@ -153,6 +153,31 @@ describe("createAuthApi", () => {
     expect(headers["Authorization"]).toBe("Bearer tok_explicit");
   });
 
+  it("treats an empty string as an explicit token without resolving", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      orgId: null,
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const store = mockStore();
+    store.resolveSession = vi.fn();
+    const api = createAuthApi({ client, store });
+
+    await api.getMe("");
+
+    expect(store.resolveSession).not.toHaveBeenCalled();
+    expect(client.fetch).toHaveBeenCalledWith("/auth/me", {
+      method: "GET",
+      skipAuth: true,
+      headers: { Authorization: "Bearer " },
+    });
+  });
+
   it("getMe without resolver uses explicit no-refresh transport", async () => {
     const client = mockClient();
     (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -173,7 +198,7 @@ describe("createAuthApi", () => {
     expect(opts.skipAuth).toBe(true);
   });
 
-  it("current-token getMe shares an active identity read then revalidates", async () => {
+  it("tokenless getMe shares an active identity read then revalidates", async () => {
     let resolveFirst!: (value: Response) => void;
     const first = new Promise<Response>((resolve) => {
       resolveFirst = resolve;
@@ -201,7 +226,7 @@ describe("createAuthApi", () => {
     const api = createAuthApi({ client, store });
 
     store.setAccessToken("tok_current", 900);
-    const joined = api.getMe("tok_current");
+    const joined = api.getMe();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     resolveFirst({
       ok: true,
@@ -210,9 +235,67 @@ describe("createAuthApi", () => {
     } as Response);
     await expect(joined).resolves.toMatchObject({ roles: ["member"] });
 
-    await expect(api.getMe("tok_current")).resolves.toMatchObject({ roles: [] });
+    await expect(api.getMe()).resolves.toMatchObject({ roles: [] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(client.fetch).not.toHaveBeenCalled();
+  });
+
+  it("explicit current-token getMe never enters resolver or refresh paths", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      orgId: "org_1",
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const store = mockStore();
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_current");
+    store.resolveSession = vi.fn();
+    const api = createAuthApi({ client, store });
+
+    await expect(api.getMe("tok_current")).resolves.toMatchObject({ id: "u1" });
+
+    expect(store.resolveSession).not.toHaveBeenCalled();
+    expect(client.fetch).toHaveBeenCalledWith("/auth/me", {
+      method: "GET",
+      skipAuth: true,
+      headers: { Authorization: "Bearer tok_current" },
+    });
+  });
+
+  it("rejects an explicit current-token identity response after token replacement", async () => {
+    let resolveIdentity!: (value: unknown) => void;
+    const identity = new Promise<unknown>((resolve) => {
+      resolveIdentity = resolve;
+    });
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockReturnValue(identity);
+    const store = mockStore();
+    (store.getAccessToken as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce("tok_a")
+      .mockReturnValue("tok_b");
+    store.resolveSession = vi.fn();
+    const api = createAuthApi({ client, store });
+
+    const pending = api.getMe("tok_a");
+    resolveIdentity({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      orgId: "org_1",
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await expect(pending).rejects.toMatchObject({
+      status: 409,
+      code: "SESSION_SUPERSEDED",
+    });
+    expect(store.resolveSession).not.toHaveBeenCalled();
   });
 
   it("rejects malformed explicit-token /auth/me without refreshing", async () => {
