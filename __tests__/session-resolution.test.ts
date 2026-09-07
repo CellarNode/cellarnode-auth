@@ -174,6 +174,43 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(identityCalls).toBe(2);
   });
 
+  it("publishes the adopted token while refreshed identity is resolving", async () => {
+    const refreshedIdentity = deferred<Response>();
+    global.fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/auth/refresh")) {
+        return Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+      }
+      const token = new Headers(init?.headers).get("Authorization");
+      return token === "Bearer tok_b"
+        ? refreshedIdentity.promise
+        : Promise.resolve(response(userA));
+    }) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const resolvingTokens: Array<string | null> = [];
+    store.onSessionStateChange((state) => {
+      if (state.status === "resolving") resolvingTokens.push(state.token);
+    });
+
+    const refreshing = store.resolveSession({ refresh: true });
+    await flush();
+
+    expect(resolvingTokens).toEqual(["tok_a", "tok_b"]);
+    expect(store.getAccessToken()).toBe("tok_b");
+    expect(store.getSessionState()).toEqual({
+      status: "resolving",
+      token: "tok_b",
+    });
+
+    refreshedIdentity.resolve(response(userA));
+    await expect(refreshing).resolves.toMatchObject({
+      status: "ready",
+      token: "tok_b",
+    });
+  });
+
   it("installs refresh flight before publishing resolving to reentrant observers", async () => {
     const fetchMock = vi.fn((url: string) =>
       Promise.resolve(
@@ -498,6 +535,28 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(store.getAccessToken()).toBe("tok_b");
     expect(tokenEvents).not.toContain(null);
     expect(logout).not.toHaveBeenCalled();
+  });
+
+  it("suppresses remaining logout listeners after replacement login", async () => {
+    global.fetch = vi.fn((_url: string, init?: RequestInit) => {
+      const token = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(
+        response(token === "Bearer tok_b" ? { ...userA, orgId: "org_b" } : userA),
+      );
+    }) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+    const staleLogout = vi.fn();
+    store.onLogout(() => store.setAccessToken("tok_b", 900));
+    store.onLogout(staleLogout);
+
+    store.clearAccessToken();
+    await store.resolveSession({ refresh: false });
+
+    expect(store.getAccessToken()).toBe("tok_b");
+    expect(store.getOrgId()).toBe("org_b");
+    expect(staleLogout).not.toHaveBeenCalled();
   });
 
   it("does not publish legacy token-set event for unavailable authority", async () => {

@@ -126,13 +126,16 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
   }
 
-  function emitLogout(): void {
+  function emitLogout(
+    shouldContinue: () => boolean = () => true,
+  ): void {
     for (const listener of logoutListeners) {
       try {
         listener();
       } catch {
         // Subscriber failures cannot break other observers or logout.
       }
+      if (!shouldContinue()) break;
     }
   }
 
@@ -503,6 +506,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       pendingRefreshBaseline = baseline
         ? { token: baseline.token, user: copyAuthUser(baseline.user) }
         : null;
+      publishSessionState({ status: "resolving", token: nextToken });
+      if (
+        nextGeneration !== tokenGeneration ||
+        accessToken !== nextToken
+      ) {
+        return { status: "superseded" };
+      }
       scheduleRefresh(expiresIn);
 
       return startIdentityFlight(
@@ -579,7 +589,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     },
 
     clearAccessToken() {
-      if (clearCurrentGeneration(tokenGeneration)) emitLogout();
+      if (clearCurrentGeneration(tokenGeneration)) {
+        const clearedGeneration = tokenGeneration;
+        emitLogout(
+          () =>
+            tokenGeneration === clearedGeneration && accessToken === null,
+        );
+      }
     },
 
     async ensureAccessToken(forceRefresh = false) {

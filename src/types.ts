@@ -33,7 +33,7 @@ export interface VerifyOtpUser {
   id: string;
   email: string;
   name: string;
-  phone: string;
+  phone?: string;
   userType: SessionUserType | null;
   orgId: string | null;
   roles: string[];
