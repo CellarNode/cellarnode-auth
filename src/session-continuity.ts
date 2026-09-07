@@ -30,6 +30,8 @@ export function canReplaySession(
     before !== null &&
     after.status === "ready" &&
     store.getAccessToken() === after.token &&
+    store.getUserId() === after.user.id &&
+    store.getOrgId() === after.user.orgId &&
     after.user.id === before.userId &&
     after.user.orgId === before.orgId
   );

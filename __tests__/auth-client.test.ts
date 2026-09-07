@@ -156,6 +156,26 @@ describe("createAuthClient", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("does not replay when same-token authority starts resolving again", async () => {
+    const store = mockStore();
+    (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_new");
+      (store.getUserId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+      (store.getOrgId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+      return { status: "ready", token: "tok_new", user: userA };
+    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(response({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401));
+
+    const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
+    await expect(client.fetch("/api/write")).rejects.toMatchObject({
+      status: 409,
+      code: "SESSION_CONTINUITY_CHANGED",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves credentials and suppresses replay when refresh is unavailable", async () => {
     const store = mockStore("tok_old", {
       status: "unavailable",
