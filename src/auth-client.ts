@@ -5,6 +5,7 @@ import {
   captureSessionContinuity,
   resolveSessionForReplay,
 } from "./session-continuity.js";
+import { fetchAuthRequest } from "./auth-transport.js";
 
 export function createAuthClient(config: AuthClientConfig): AuthClient {
   const { baseUrl, store, onAuthFailure } = config;
@@ -55,11 +56,9 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         headers.set("Content-Type", "application/json");
       }
 
-      const url = `${baseUrl}${path}`;
-
       const retryWithToken = async (token: string): Promise<T> => {
         headers.set("Authorization", `Bearer ${token}`);
-        const retryRes = await fetch(url, {
+        const retryRes = await fetchAuthRequest(baseUrl, path, {
           ...init,
           headers,
           credentials: "include",
@@ -75,7 +74,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         );
       };
 
-      const res = await fetch(url, {
+      const res = await fetchAuthRequest(baseUrl, path, {
         ...init,
         headers,
         credentials: "include",

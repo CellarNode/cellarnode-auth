@@ -74,8 +74,13 @@ The dev-bypass internals (`DevSignInBypass`, `DEV_LOGIN_EMAIL_STORAGE_KEY`,
 
 ### Core API
 
-- `createAuthStore({ baseUrl })` — holds the access token in a **module-closure variable, not `localStorage`**; durability across reloads comes from the backend's HttpOnly refresh cookie, which `performRefresh()` sends with `credentials: "include"`. `AuthStoreConfig` is `{ baseUrl, refreshPath?, refreshBuffer? }` — there is no storage-adapter seam. Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
+- `createAuthStore({ baseUrl })` — holds the access token in a **module-closure variable, not `localStorage`**; durability across reloads comes from the backend's HttpOnly refresh cookie, which `performRefresh()` sends with `credentials: "include"`. `AuthStoreConfig` is `{ baseUrl, refreshPath?, refreshBuffer?, resolutionTimeoutMs? }` — there is no storage-adapter seam. Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
 - `createAuthClient({ baseUrl, store, onAuthFailure })` — fetch wrapper, auto-attaches Bearer, calls `onAuthFailure` on 401.
+
+Every package-owned request requires HTTPS. HTTP is accepted automatically
+only for exact parsed loopback hosts `localhost`, `127.0.0.1`, and `[::1]` for
+local development. Requests reject redirects and cannot escape a configured
+base URL path.
 - `createAuthApi({ client, store })` — typed login/register/logout helpers.
 - `validateUserType(userType)` — `"producer" | "importer" | "distributor" | "admin"`.
 

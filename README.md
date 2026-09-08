@@ -35,6 +35,13 @@ const authClient = createAuthClient({
 const authApi = createAuthApi({ client: authClient, store: authStore });
 ```
 
+All package-owned requests require HTTPS. HTTP works automatically only for
+exact loopback hosts `localhost`, `127.0.0.1`, and `[::1]` during local
+development. Invalid URLs, userinfo, other schemes, non-loopback HTTP, and
+request paths that escape the configured origin or base path fail before
+network transport. Redirects are rejected so credentials cannot follow a
+cross-origin or HTTPS-to-HTTP redirect.
+
 Resolve token and authoritative identity together before enabling protected
 work. `unavailable` preserves credentials while authority getters fail closed.
 Caller abort returns `superseded` without cancelling shared adoption.

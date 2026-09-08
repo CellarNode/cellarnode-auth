@@ -1,5 +1,6 @@
 import { copyAuthUser, parseAuthUser } from "./auth-user.js";
 import { extractAccessToken } from "./extract-token.js";
+import { fetchAuthRequest } from "./auth-transport.js";
 import type {
   AccessTokenSetListener,
   AuthStoreConfig,
@@ -213,11 +214,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   }
 
   function fetchResolutionResponse(
-    url: string,
+    path: string,
     init: RequestInit,
   ): Promise<{ response: Response; raw: unknown }> {
     return withResolutionTimeout(async (signal) => {
-      const response = await fetch(url, { ...init, signal });
+      const response = await fetchAuthRequest(baseUrl, path, {
+        ...init,
+        signal,
+      });
       const raw = response.ok ? await response.json() : null;
       return { response, raw };
     });
@@ -226,7 +230,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   async function fetchIdentity(token: string): Promise<IdentityRead> {
     let result: { response: Response; raw: unknown };
     try {
-      result = await fetchResolutionResponse(`${baseUrl}/auth/me`, {
+      result = await fetchResolutionResponse("/auth/me", {
         method: "GET",
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
@@ -464,7 +468,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     void (async (): Promise<SessionResolution> => {
       let result: { response: Response; raw: unknown };
       try {
-        result = await fetchResolutionResponse(`${baseUrl}${refreshPath}`, {
+        result = await fetchResolutionResponse(refreshPath, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
@@ -632,7 +636,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     async devLogin(email: string): Promise<DevLoginResult> {
       let response: Response;
       try {
-        response = await fetch(`${baseUrl}/test/login`, {
+        response = await fetchAuthRequest(baseUrl, "/test/login", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
