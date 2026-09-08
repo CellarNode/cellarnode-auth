@@ -1,0 +1,28 @@
+__tests__/session-resolution.test.ts
+  s_0099ecd76e936c::t_38042ae716de40 151-248
+src/session-continuity.ts
+  s_0099ecd76e936c::t_38042ae716de40 119-120
+__tests__/auth-client.test.ts
+  s_0099ecd76e936c::t_38042ae716de40 276-303,319-339
+  s_0099ecd76e936c::t_25ad7467b48a95 340
+src/auth-store.ts
+  s_0099ecd76e936c::t_001f0d84ceddd9 692-695
+  s_0099ecd76e936c::t_38042ae716de40 53-58,88,601-607,611,613-634,640-643,656,689-691
+  s_0099ecd76e936c::t_f60e77e6d40375 109-117,292-297,312-314,355-361
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d3cad5a15f752d48ce482bd8d48fb7914661f78f",
+  "prompts": {},
+  "sessions": {
+    "s_0099ecd76e936c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0766e-b154-7fb2-b9c3-58aa7940eda0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
