@@ -1,4 +1,5 @@
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const ENCODED_PATH_BOUNDARY = /%(?:2f|5c|25)/i;
 
 function parseAllowedUrl(value: string): URL {
   let url: URL;
@@ -10,6 +11,9 @@ function parseAllowedUrl(value: string): URL {
 
   if (url.username || url.password) {
     throw new TypeError("Auth request URL must not contain userinfo");
+  }
+  if (ENCODED_PATH_BOUNDARY.test(url.pathname)) {
+    throw new TypeError("Auth request URL contains an encoded path boundary");
   }
   if (
     url.protocol !== "https:" &&

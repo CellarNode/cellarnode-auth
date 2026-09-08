@@ -124,6 +124,62 @@ describe("auth transport policy", () => {
     },
   );
 
+  it.each([
+    "..%2fauth/me",
+    "..%2Fauth/me",
+    "..%5cauth/me",
+    "..%5Cauth/me",
+    "..%252fauth/me",
+    "..%252Fauth/me",
+    "..%255cauth/me",
+  ])("rejects encoded path-boundary traversal before fetch: %s", async (path) => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+    const client = createAuthClient({
+      baseUrl: "https://api.example.test/v2",
+      store: readyStore(),
+    });
+
+    await expect(
+      client.fetch(path, { skipAuth: true }),
+    ).rejects.toBeInstanceOf(TypeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://api.example.test/v2%2fprivate",
+    "https://api.example.test/v2%5Cprivate",
+    "https://api.example.test/v2%252fprivate",
+  ])("rejects encoded path boundaries in base URL: %s", async (baseUrl) => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+    const client = createAuthClient({ baseUrl, store: readyStore() });
+
+    await expect(
+      client.fetch("/auth/request-otp", { skipAuth: true }),
+    ).rejects.toBeInstanceOf(TypeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows encoded query values and encoded Unicode path segments", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ ok: true }));
+    global.fetch = fetchMock;
+    const client = createAuthClient({
+      baseUrl: "https://api.example.test/v2",
+      store: readyStore(),
+    });
+
+    await client.fetch(
+      "/products/caf%C3%A9?next=%2Fauth%2Fme&literal=%252f",
+      { skipAuth: true },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/v2/products/caf%C3%A9?next=%2Fauth%2Fme&literal=%252f",
+      expect.any(Object),
+    );
+  });
+
   it("applies transport rejection to explicit-token getMe without network", async () => {
     const fetchMock = vi.fn();
     global.fetch = fetchMock;
