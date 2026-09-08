@@ -6,10 +6,9 @@ import type {
   RegisterInput,
   RequestOtpResponse,
   VerifyOtpResponse,
-  VerifyOtpUser,
 } from "./types.js";
 import { extractAccessToken } from "./extract-token.js";
-import { parseAuthUser } from "./auth-user.js";
+import { parseAuthUser, parseVerifyOtpUser } from "./auth-user.js";
 
 export function createAuthApi(config: {
   client: AuthClient;
@@ -52,6 +51,15 @@ export function createAuthApi(config: {
         throw new AuthError(500, "TOKEN_EXTRACTION_FAILED", "No access token found in verify-otp response");
       }
 
+      const user = parseVerifyOtpUser(raw.user);
+      if (!user) {
+        throw new AuthError(
+          500,
+          "OTP_USER_INVALID",
+          "Invalid user in verify-otp response",
+        );
+      }
+
       const expiresIn =
         typeof raw.expiresIn === "number" ? raw.expiresIn : 900;
 
@@ -60,7 +68,7 @@ export function createAuthApi(config: {
       return {
         accessToken: token,
         expiresIn,
-        user: raw.user as VerifyOtpUser,
+        user,
       };
     },
 

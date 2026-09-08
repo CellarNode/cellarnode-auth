@@ -10,9 +10,9 @@
 - Package-owned auth requests require HTTPS. Exact loopback hosts `localhost`, `127.0.0.1`, and `[::1]` retain automatic HTTP support for local development. Unsafe URLs and redirects fail before credentials can leave the configured origin and base path.
 - Session-facing `userType` accepts `"distributor"` and nullable profile values. Consumers must handle `null` before portal routing.
 
-### Migration
-- Code reading `verifyOtp(...).user` must treat it as `VerifyOtpUser`; call `getMe()` or resolve the session before requiring full `AuthUser` fields such as `createdAt`.
-- Code switching on `AuthUser.userType` must handle `"distributor"` and `null`.
+### Breaking changes
+- `VerifyOtpResponse.user` is now `VerifyOtpUser`, which omits `createdAt` and `entitlements`. Code requiring those full-profile fields must call `getMe()` or resolve the session.
+- `AuthUser.userType` now permits `"distributor"` and `null`. Exhaustive switches and portal routing must handle both values.
 - Protected startup and 401 retry flows should use the session-resolution API so token, user, and organisation authority come from one guarded generation.
 
 ## 0.14.0

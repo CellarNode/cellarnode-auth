@@ -53,9 +53,10 @@ export function canReplaySession(
 }
 
 /**
- * Resolve authority for a 401 retry without refreshing a replacement session.
- * A ready replacement credential may be reused only for the captured user and
- * organisation. Call `canReplaySession` again immediately before transport.
+ * Resolve authority for a 401 retry. Reuse an already-ready replacement only
+ * when its user and organisation match the captured authority; otherwise a
+ * matching captured credential refreshes. Call `canReplaySession` again
+ * immediately before transport.
  */
 export async function resolveSessionForReplay(
   store: AuthStore,

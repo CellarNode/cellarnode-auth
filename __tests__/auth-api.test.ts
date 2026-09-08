@@ -88,7 +88,7 @@ describe("createAuthApi", () => {
         id: "u1",
         email: "t@t.com",
         name: "Test",
-        userType: "producer",
+        userType: null,
         orgId: null,
         roles: [],
       },
@@ -96,8 +96,70 @@ describe("createAuthApi", () => {
 
     const api = createAuthApi({ client, store });
     await expect(api.verifyOtp("t@t.com", "123456")).resolves.toMatchObject({
-      user: { id: "u1" },
+      user: { id: "u1", userType: null, orgId: null },
     });
+  });
+
+  it.each([
+    ["missing user", undefined],
+    ["empty id", { id: "", email: "t@t.com", name: "Test", userType: "producer", orgId: null, roles: [] }],
+    ["missing email", { id: "u1", name: "Test", userType: "producer", orgId: null, roles: [] }],
+    ["missing name", { id: "u1", email: "t@t.com", userType: "producer", orgId: null, roles: [] }],
+    ["missing userType", { id: "u1", email: "t@t.com", name: "Test", orgId: null, roles: [] }],
+    ["unknown userType", { id: "u1", email: "t@t.com", name: "Test", userType: "broker", orgId: null, roles: [] }],
+    ["missing orgId", { id: "u1", email: "t@t.com", name: "Test", userType: "producer", roles: [] }],
+    ["non-string phone", { id: "u1", email: "t@t.com", name: "Test", phone: 42, userType: "producer", orgId: null, roles: [] }],
+    ["malformed roles", { id: "u1", email: "t@t.com", name: "Test", userType: "producer", orgId: null, roles: ["member", 4] }],
+  ])("rejects verify-otp %s before token adoption", async (_case, user) => {
+    const client = mockClient();
+    const store = mockStore();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accessToken: "tok_invalid",
+      expiresIn: 900,
+      user,
+    });
+    const api = createAuthApi({ client, store });
+
+    await expect(api.verifyOtp("t@t.com", "123456")).rejects.toMatchObject({
+      status: 500,
+      code: "OTP_USER_INVALID",
+      message: "Invalid user in verify-otp response",
+    });
+    expect(store.setAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("defensively copies verify-otp roles and strips full-profile extras", async () => {
+    const client = mockClient();
+    const store = mockStore();
+    const roles = ["member"];
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accessToken: "tok_new",
+      expiresIn: 900,
+      user: {
+        id: "u1",
+        email: "t@t.com",
+        name: "Test",
+        userType: "distributor",
+        orgId: "org_1",
+        roles,
+        createdAt: "ignored",
+        entitlements: ["ignored"],
+      },
+    });
+    const api = createAuthApi({ client, store });
+
+    const result = await api.verifyOtp("t@t.com", "123456");
+    roles.push("admin");
+
+    expect(result.user).toEqual({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "distributor",
+      orgId: "org_1",
+      roles: ["member"],
+    });
+    expect(store.setAccessToken).toHaveBeenCalledWith("tok_new", 900);
   });
 
   it("verifyOtp extracts token from nested response shapes", async () => {

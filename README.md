@@ -53,6 +53,12 @@ if (session.status === "ready") {
 }
 ```
 
+`ensureAccessToken()` remains a legacy credential-only wrapper. It may return a
+retained token while authority is transiently `unavailable`; authority getters
+still fail closed. Never use its token as proof that user or organisation
+authority is ready. Use `resolveSession()` and require `status === "ready"` for
+authorization decisions.
+
 `onSessionStateChange` immediately reports current state. A synchronous
 `resolving` notification precedes credential or authority changes, allowing
 consumers to suspend writes and clear captured tenant queries first.
