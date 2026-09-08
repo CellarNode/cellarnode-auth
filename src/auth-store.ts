@@ -1,75 +1,24 @@
+import { copyAuthUser, parseAuthUser } from "./auth-user.js";
+import { extractAccessToken } from "./extract-token.js";
+import { fetchAuthRequest } from "./auth-transport.js";
 import type {
   AccessTokenSetListener,
-  AuthStore,
   AuthStoreConfig,
   AuthUser,
+  ConcreteAuthStore,
   DevLoginFailure,
   DevLoginResult,
   LogoutListener,
   OrgChangeListener,
-  SessionUserType,
+  ResolveSessionOptions,
+  SessionResolution,
+  SessionState,
+  SessionStateListener,
 } from "./types.js";
-import { extractAccessToken } from "./extract-token.js";
 
-/**
- * Minimal identity shape cached by the auth-store, sourced from `GET /auth/me`.
- *
- * CEL-622 — the public access token is an opaque, ENCRYPTED JWE (jose
- * `EncryptJWT`, alg `dir` / `A256GCM`). It is NOT client-decodable, so the
- * store can no longer derive identity from the token. Instead, every time a
- * token is acquired or changed, the store fetches `/auth/me` (the authoritative,
- * decryptable endpoint that — post-CEL-630 — returns orgId, userId, userType
- * AND entitlements) with the bearer token and caches the result here.
- */
-interface Identity {
-  userId: string;
-  orgId: string | null;
-  userType: SessionUserType;
-  entitlements: string[];
-}
-
-/**
- * Map a `/auth/me` AuthUser onto the minimal cached identity.
- *
- * `AuthUser.id` is the userId. `entitlements` is optional on the wire (older
- * backends omit it) → defaults to `[]`. The element filter guards against a
- * malformed array carrying non-string entries.
- */
-function toIdentity(user: AuthUser): Identity {
-  const entitlements = Array.isArray(user.entitlements)
-    ? user.entitlements.filter((e): e is string => typeof e === "string")
-    : [];
-  return {
-    userId: user.id,
-    orgId: user.orgId ?? null,
-    userType: user.userType,
-    entitlements,
-  };
-}
-
-/**
- * Fallback access-token lifetime, in seconds, when the server omits
- * `expiresIn`. Mirrors the verify-otp adoption path in `auth-api.ts`.
- */
 const DEFAULT_ACCESS_TOKEN_TTL = 900;
+const DEFAULT_RESOLUTION_TIMEOUT_MS = 10_000;
 
-/**
- * Developer-facing copy for each `devLogin()` failure (CEL-1364).
- *
- * The 404 message frames the outcome as "the backend gate is off" and nothing
- * else. The backend deliberately returns an identical 404 for "gate off" and
- * "no such user" (T3-1), so any copy that named the account would be both a
- * guess and a weakening of that contract.
- *
- * These strings SHIP in production bundles — they are referenced from
- * `devLogin`'s live body, which no bundler can prove unreachable. The
- * `ENABLE_TEST_ENDPOINTS` mention is therefore public, which is fine: the flag
- * is documented in this package's README and in the backend repo, and knowing
- * its name grants nothing when the route is not mounted. Moving the copy behind
- * the DEV-only React module would eliminate it, but only by taking the
- * ready-to-render `message` off `DevLoginFailure` — a public-API change, not a
- * review fixup.
- */
 const DEV_LOGIN_MESSAGES = {
   "test-endpoints-disabled":
     "Dev sign-in unavailable: backend test endpoints are disabled. Set ENABLE_TEST_ENDPOINTS=true on the API and restart it.",
@@ -81,259 +30,677 @@ const DEV_LOGIN_MESSAGES = {
     "Dev sign-in succeeded but the API returned no access token.",
 } as const;
 
-export function createAuthStore(config: AuthStoreConfig): AuthStore {
-  const { baseUrl, refreshPath = "/auth/refresh", refreshBuffer = 60 } = config;
+type IdentityRead =
+  | { status: "ready"; user: AuthUser }
+  | { status: "unavailable" }
+  | { status: "unauthorized" };
+
+interface ReadyBaseline {
+  token: string;
+  user: AuthUser;
+}
+
+interface IdentityFlight {
+  generation: number;
+  promise: Promise<SessionResolution>;
+}
+
+interface RefreshFlight {
+  generation: number;
+  promise: Promise<SessionResolution>;
+}
+
+interface ExplicitAdoptionFlight {
+  generation: number;
+  promise: Promise<SessionResolution>;
+  settle: (resolution: SessionResolution) => void;
+}
+
+function copySessionState(state: SessionState): SessionState {
+  return state.status === "ready"
+    ? { ...state, user: copyAuthUser(state.user) }
+    : { ...state };
+}
+
+function copyResolution(resolution: SessionResolution): SessionResolution {
+  return resolution.status === "ready"
+    ? { ...resolution, user: copyAuthUser(resolution.user) }
+    : { ...resolution };
+}
+
+export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
+  const {
+    baseUrl,
+    refreshPath = "/auth/refresh",
+    refreshBuffer = 60,
+    resolutionTimeoutMs = DEFAULT_RESOLUTION_TIMEOUT_MS,
+  } = config;
+  const requestTimeoutMs =
+    Number.isFinite(resolutionTimeoutMs) && resolutionTimeoutMs > 0
+      ? resolutionTimeoutMs
+      : DEFAULT_RESOLUTION_TIMEOUT_MS;
 
   let accessToken: string | null = null;
-  let identity: Identity | null = null;
+  let identity: AuthUser | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  let refreshPromise: Promise<string | null> | null = null;
-
-  // Tracks the orgId observed at the last emitted state so `onOrgChange` only
-  // fires on an actual transition. `hasEmittedOrgId` disambiguates the two
-  // meanings `previousOrgId === null` would otherwise carry — "no org emitted
-  // yet" vs "the current org is admin/null". Without it, the FIRST admin
-  // identity (orgId null) and an admin login right after `clearToken()` would
-  // skip `onOrgChange(null)`. Both are reset on logout so a subsequent login
-  // re-fires `onOrgChange` even into the same org.
+  let identityFlight: IdentityFlight | null = null;
+  let refreshFlight: RefreshFlight | null = null;
+  let explicitAdoptionFlight: ExplicitAdoptionFlight | null = null;
+  let tokenGeneration = 0;
   let previousOrgId: string | null = null;
   let hasEmittedOrgId = false;
-
-  // Monotonic generation counter. Bumped on every token change (set / clear /
-  // refresh). An in-flight `/auth/me` resolution only commits if its captured
-  // generation still matches — this discards stale identity results when the
-  // token changed again before the previous fetch resolved.
-  let tokenGeneration = 0;
+  // Last validated principal/tenant survives transient authority outages. It
+  // never powers authority getters; it only prevents raw same-token identity
+  // changes from becoming trusted after an unavailable read.
+  let continuityBaseline: ReadyBaseline | null = null;
+  // A refreshed credential may be adopted before its identity read succeeds.
+  // Preserve its old-principal lineage so a later retry still verifies account
+  // continuity while permitting a fresh-token organisation transition.
+  let pendingRefreshBaseline: ReadyBaseline | null = null;
+  let sessionState: SessionState = { status: "unauthorized" };
 
   const orgChangeListeners = new Set<OrgChangeListener>();
   const accessTokenSetListeners = new Set<AccessTokenSetListener>();
   const logoutListeners = new Set<LogoutListener>();
+  const sessionStateListeners = new Set<SessionStateListener>();
+  const stateQueue: SessionState[] = [];
+  let publishingState = false;
 
-  function emitOrgChange(orgId: string | null): void {
+  function settleExplicitGeneration(
+    generation: number,
+    resolution: SessionResolution,
+  ): void {
+    if (explicitAdoptionFlight?.generation === generation) {
+      explicitAdoptionFlight.settle(resolution);
+    }
+  }
+
+  function emitOrgChange(
+    orgId: string | null,
+    shouldContinue: () => boolean = () => true,
+  ): void {
     for (const listener of orgChangeListeners) {
       try {
         listener(orgId);
       } catch {
-        // Swallow listener errors so a single bad subscriber cannot
-        // break event fan-out to other subscribers.
+        // Subscriber failures cannot break other observers or session adoption.
       }
+      if (!shouldContinue()) break;
     }
   }
 
-  function emitAccessTokenSet(token: string | null): void {
+  function emitAccessTokenSet(
+    token: string | null,
+    shouldContinue: () => boolean = () => true,
+  ): void {
     for (const listener of accessTokenSetListeners) {
       try {
         listener(token);
       } catch {
-        // Swallow.
+        // Subscriber failures cannot break other observers or session adoption.
       }
+      if (!shouldContinue()) break;
     }
   }
 
-  function emitLogout(): void {
+  function emitLogout(
+    shouldContinue: () => boolean = () => true,
+  ): void {
     for (const listener of logoutListeners) {
       try {
         listener();
       } catch {
-        // Swallow.
+        // Subscriber failures cannot break other observers or logout.
       }
+      if (!shouldContinue()) break;
     }
+  }
+
+  function publishSessionState(next: SessionState): void {
+    stateQueue.push(copySessionState(next));
+    if (publishingState) return;
+    publishingState = true;
+    try {
+      while (stateQueue.length > 0) {
+        const published = stateQueue.shift();
+        if (!published) continue;
+        sessionState = published;
+        for (const listener of sessionStateListeners) {
+          const queuedBeforeCallback = stateQueue.length;
+          try {
+            listener(copySessionState(published));
+          } catch {
+            // Observers cannot veto or interrupt global session resolution.
+          }
+          if (stateQueue.length > queuedBeforeCallback) break;
+        }
+      }
+    } finally {
+      publishingState = false;
+    }
+  }
+
+  /** Notify consumers before authority or credentials can change. */
+  function beginResolving(
+    generation: number,
+    token: string | null,
+  ): boolean {
+    publishSessionState({ status: "resolving", token });
+    if (generation !== tokenGeneration) return false;
+    identity = null;
+    return true;
   }
 
   function scheduleRefresh(expiresInSeconds: number): void {
     if (refreshTimer) clearTimeout(refreshTimer);
     const delay = Math.max((expiresInSeconds - refreshBuffer) * 1000, 0);
     refreshTimer = setTimeout(() => {
-      performRefresh();
+      void store.resolveSession({ refresh: true });
     }, delay);
   }
 
-  /**
-   * Fetch `/auth/me` with the bearer token and return the parsed identity, or
-   * null on any failure (network error, non-2xx, malformed body).
-   *
-   * Tolerant by design — mirrors how `performRefresh` swallows errors. A failed
-   * `/auth/me` must NOT throw out of `setAccessToken` / `performRefresh`; the
-   * caller treats null identity as "logged in but identity unknown" and the
-   * getters fall back to null/[].
-   */
-  async function fetchIdentity(token: string): Promise<Identity | null> {
+  function withResolutionTimeout<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("Session resolution request timed out"));
+      }, requestTimeoutMs);
+      let pending: Promise<T>;
+      try {
+        pending = operation(controller.signal);
+      } catch (error) {
+        clearTimeout(timer);
+        reject(error);
+        return;
+      }
+      void pending.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  function fetchResolutionResponse(
+    path: string,
+    init: RequestInit,
+  ): Promise<{ response: Response; raw: unknown }> {
+    return withResolutionTimeout(async (signal) => {
+      const response = await fetchAuthRequest(baseUrl, path, {
+        ...init,
+        signal,
+      });
+      const raw = response.ok ? await response.json() : null;
+      return { response, raw };
+    });
+  }
+
+  async function fetchIdentity(token: string): Promise<IdentityRead> {
+    let result: { response: Response; raw: unknown };
     try {
-      const res = await fetch(`${baseUrl}/auth/me`, {
+      result = await fetchResolutionResponse("/auth/me", {
         method: "GET",
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return null;
-      const user = (await res.json()) as AuthUser;
-      if (!user || typeof user.id !== "string" || user.id.length === 0) {
-        return null;
-      }
-      return toIdentity(user);
     } catch {
-      return null;
+      return { status: "unavailable" };
     }
+
+    const { response, raw } = result;
+    if (response.status === 401 || response.status === 403) {
+      return { status: "unauthorized" };
+    }
+    if (!response.ok) return { status: "unavailable" };
+
+    const user = parseAuthUser(raw);
+    return user
+      ? { status: "ready", user }
+      : { status: "unavailable" };
   }
 
-  /**
-   * Commit a freshly-resolved identity and emit the dependent events.
-   *
-   * EVENT ORDERING (CRITICAL — consumer realtime hooks depend on it):
-   * identity is async, so on a token change the sequence is:
-   *   1. set token (synchronous, in `setAccessToken` / `performRefresh`)
-   *   2. kick off `fetchIdentity(token)` (async)
-   *   3. ON RESOLVE → here:
-   *        a. cache identity FIRST (so getters return real values)
-   *        b. emit `onAccessTokenSet(token)` (consumer hooks re-read getOrgId()
-   *           inside this handler — identity must already be cached)
-   *        c. emit `onOrgChange(orgId)` IF orgId actually changed vs the last
-   *           emitted state
-   *
-   * The `generation` guard discards this commit if the token changed again
-   * (set/clear/refresh) while this `/auth/me` was in flight.
-   */
-  function commitIdentity(
+  function clearCurrentGeneration(generation: number): boolean {
+    if (generation !== tokenGeneration) return false;
+    tokenGeneration += 1;
+    const clearedGeneration = tokenGeneration;
+    accessToken = null;
+    identity = null;
+    continuityBaseline = null;
+    pendingRefreshBaseline = null;
+    identityFlight = null;
+    refreshFlight = null;
+    previousOrgId = null;
+    hasEmittedOrgId = false;
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    publishSessionState({ status: "unauthorized" });
+    if (tokenGeneration !== clearedGeneration || accessToken !== null) return false;
+    emitAccessTokenSet(
+      null,
+      () => tokenGeneration === clearedGeneration && accessToken === null,
+    );
+    const cleared =
+      tokenGeneration === clearedGeneration && accessToken === null;
+    if (cleared) {
+      settleExplicitGeneration(generation, { status: "unauthorized" });
+    }
+    return cleared;
+  }
+
+  function markUnavailable(
+    generation: number,
+    token: string | null,
+  ): SessionResolution {
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
+    identity = null;
+    publishSessionState({ status: "unavailable", token });
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
+    const result: SessionResolution = { status: "unavailable", token };
+    settleExplicitGeneration(generation, result);
+    return result;
+  }
+
+  function commitReady(
     generation: number,
     token: string,
-    nextIdentity: Identity | null,
-  ): void {
-    if (generation !== tokenGeneration) {
-      // A newer token change superseded this fetch — drop the stale result.
-      return;
+    user: AuthUser,
+  ): SessionResolution {
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
     }
 
-    identity = nextIdentity;
-    const nextOrgId = nextIdentity?.orgId ?? null;
+    identity = copyAuthUser(user);
+    const nextOrgId = identity.orgId;
+    continuityBaseline = { token, user: copyAuthUser(identity) };
+    pendingRefreshBaseline = null;
 
-    // (b) Token-set first — handlers read getOrgId()/getUserId() and must see
-    // the just-cached identity.
-    emitAccessTokenSet(token);
-
-    // (c) Org-change on the first emission OR an actual transition. The
-    // `!hasEmittedOrgId` guard ensures the first identity (incl. an admin
-    // orgId of null) always fires once.
+    publishSessionState({ status: "ready", token, user: identity });
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
+    emitAccessTokenSet(
+      token,
+      () => generation === tokenGeneration && accessToken === token,
+    );
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
     if (!hasEmittedOrgId || nextOrgId !== previousOrgId) {
       hasEmittedOrgId = true;
       previousOrgId = nextOrgId;
-      emitOrgChange(nextOrgId);
+      emitOrgChange(
+        nextOrgId,
+        () => generation === tokenGeneration && accessToken === token,
+      );
     }
+
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
+
+    const result: SessionResolution = {
+      status: "ready",
+      token,
+      user: copyAuthUser(identity),
+    };
+    settleExplicitGeneration(generation, result);
+    return result;
   }
 
-  /**
-   * Apply a new access token, kicking off async identity resolution.
-   *
-   * The token is committed synchronously (so `getAccessToken()` is immediately
-   * correct); identity + `onAccessTokenSet` + `onOrgChange` settle only after
-   * `/auth/me` resolves (see `commitIdentity`).
-   */
-  function applyToken(token: string): void {
+  async function evaluateIdentity(
+    generation: number,
+    token: string,
+    baseline: ReadyBaseline | null,
+    refreshed: boolean,
+  ): Promise<SessionResolution> {
+    const read = await fetchIdentity(token);
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
+
+    if (read.status === "unauthorized") {
+      return clearCurrentGeneration(generation)
+        ? { status: "unauthorized" }
+        : { status: "superseded" };
+    }
+    if (read.status === "unavailable") {
+      return markUnavailable(generation, token);
+    }
+
+    if (baseline && read.user.id !== baseline.user.id) {
+      if (!refreshed) return runRefresh(generation, baseline);
+      return clearCurrentGeneration(generation)
+        ? { status: "unauthorized" }
+        : { status: "superseded" };
+    }
+
+    if (baseline && read.user.orgId !== baseline.user.orgId) {
+      if (!refreshed) {
+        // Same-token raw membership changes are not authority. Rotate once,
+        // then validate fresh credentials before adopting the transition.
+        return runRefresh(generation, baseline);
+      }
+      if (token === baseline.token) {
+        return markUnavailable(generation, token);
+      }
+    }
+
+    return commitReady(generation, token, read.user);
+  }
+
+  function startIdentityFlight(
+    generation: number,
+    token: string,
+    baseline: ReadyBaseline | null,
+    refreshed: boolean,
+    notifyResolving: boolean,
+  ): Promise<SessionResolution> {
+    if (identityFlight?.generation === generation) {
+      return identityFlight.promise;
+    }
+
+    let settle!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => {
+      settle = resolve;
+    });
+    const flight: IdentityFlight = { generation, promise };
+    identityFlight = flight;
+
+    if (notifyResolving && !beginResolving(generation, token)) {
+      if (identityFlight === flight) identityFlight = null;
+      settle({ status: "superseded" });
+      return promise;
+    }
+
+    void evaluateIdentity(generation, token, baseline, refreshed).then(
+      (result) => {
+        if (identityFlight === flight) identityFlight = null;
+        settle(result);
+      },
+      () => {
+        if (identityFlight === flight) identityFlight = null;
+        settle(markUnavailable(generation, token));
+      },
+    );
+    return promise;
+  }
+
+  function currentBaseline(): ReadyBaseline | null {
+    const baseline = pendingRefreshBaseline ?? continuityBaseline;
+    return baseline
+      ? { token: baseline.token, user: copyAuthUser(baseline.user) }
+      : null;
+  }
+
+  function runRefresh(
+    generation: number,
+    baseline: ReadyBaseline | null,
+  ): Promise<SessionResolution> {
+    if (refreshFlight) return refreshFlight.promise;
+    if (generation !== tokenGeneration) {
+      return Promise.resolve({ status: "superseded" });
+    }
+
+    if (!baseline && identityFlight?.generation === generation) {
+      const pendingIdentity = identityFlight.promise;
+      return pendingIdentity.then((result) => {
+        if (result.status === "ready") {
+          return runRefresh(tokenGeneration, {
+            token: result.token,
+            user: copyAuthUser(result.user),
+          });
+        }
+        if (
+          result.status === "unavailable" &&
+          generation === tokenGeneration &&
+          accessToken !== null
+        ) {
+          return runRefresh(tokenGeneration, null);
+        }
+        return result;
+      });
+    }
+
+    let settle!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => {
+      settle = resolve;
+    });
+    const flight: RefreshFlight = { generation, promise };
+    refreshFlight = flight;
+
+    if (!beginResolving(generation, accessToken)) {
+      if (refreshFlight === flight) refreshFlight = null;
+      settle({ status: "superseded" });
+      return promise;
+    }
+
+    // Refresh owns a new operation generation before transport begins. Any
+    // older identity read can no longer publish authority while refresh waits.
+    tokenGeneration += 1;
+    const refreshGeneration = tokenGeneration;
+    flight.generation = refreshGeneration;
+
+    void (async (): Promise<SessionResolution> => {
+      let result: { response: Response; raw: unknown };
+      try {
+        result = await fetchResolutionResponse(refreshPath, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch {
+        return markUnavailable(refreshGeneration, accessToken);
+      }
+
+      const { response, raw } = result;
+      if (refreshGeneration !== tokenGeneration) return { status: "superseded" };
+      if (response.status === 401 || response.status === 403) {
+        return clearCurrentGeneration(refreshGeneration)
+          ? { status: "unauthorized" }
+          : { status: "superseded" };
+      }
+      if (!response.ok) return markUnavailable(refreshGeneration, accessToken);
+
+      if (refreshGeneration !== tokenGeneration) return { status: "superseded" };
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+        return markUnavailable(refreshGeneration, accessToken);
+      }
+
+      const json = raw as Record<string, unknown>;
+      const nextToken = extractAccessToken(json);
+      if (!nextToken) return markUnavailable(refreshGeneration, accessToken);
+
+      const expiresIn =
+        typeof json.expiresIn === "number" && Number.isFinite(json.expiresIn)
+          ? json.expiresIn
+          : DEFAULT_ACCESS_TOKEN_TTL;
+
+      tokenGeneration += 1;
+      const nextGeneration = tokenGeneration;
+      // Manual/timer callers arriving while refreshed identity still resolves
+      // join this same end-to-end refresh operation.
+      flight.generation = nextGeneration;
+      accessToken = nextToken;
+      identity = null;
+      pendingRefreshBaseline = baseline
+        ? { token: baseline.token, user: copyAuthUser(baseline.user) }
+        : null;
+      publishSessionState({ status: "resolving", token: nextToken });
+      if (
+        nextGeneration !== tokenGeneration ||
+        accessToken !== nextToken
+      ) {
+        return { status: "superseded" };
+      }
+      scheduleRefresh(expiresIn);
+
+      return startIdentityFlight(
+        nextGeneration,
+        nextToken,
+        baseline,
+        true,
+        false,
+      );
+    })().then(
+      (result) => {
+        if (refreshFlight === flight) refreshFlight = null;
+        settle(result);
+      },
+      () => {
+        if (refreshFlight === flight) refreshFlight = null;
+        settle(markUnavailable(refreshGeneration, accessToken));
+      },
+    );
+    return promise;
+  }
+
+  function resolveCurrentSession(): Promise<SessionResolution> {
+    const token = accessToken;
+    const generation = tokenGeneration;
+    if (!token) return Promise.resolve({ status: "unauthorized" });
+    if (identityFlight?.generation === generation) {
+      return identityFlight.promise;
+    }
+
+    const baseline = currentBaseline();
+    const refreshed = pendingRefreshBaseline !== null;
+    return startIdentityFlight(generation, token, baseline, refreshed, true);
+  }
+
+  function waitForCaller(
+    promise: Promise<SessionResolution>,
+    signal?: AbortSignal,
+  ): Promise<SessionResolution> {
+    if (!signal) return promise.then(copyResolution);
+    if (signal.aborted) return Promise.resolve({ status: "superseded" });
+
+    return new Promise((resolve) => {
+      const onAbort = () => resolve({ status: "superseded" });
+      signal.addEventListener("abort", onAbort, { once: true });
+      void promise.then((result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(copyResolution(result));
+      });
+    });
+  }
+
+  function supersedeExplicitAdoption(): void {
+    const flight = explicitAdoptionFlight;
+    if (!flight) return;
+    explicitAdoptionFlight = null;
+    flight.settle({ status: "superseded" });
+  }
+
+  function startExplicitToken(token: string, expiresIn: number): void {
     tokenGeneration += 1;
     const generation = tokenGeneration;
+    supersedeExplicitAdoption();
+    refreshFlight = null;
+
+    let settled = false;
+    let resolveFlight!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => {
+      resolveFlight = resolve;
+    });
+    const flight: ExplicitAdoptionFlight = {
+      generation,
+      promise,
+      settle(resolution) {
+        if (settled) return;
+        settled = true;
+        if (explicitAdoptionFlight === flight) explicitAdoptionFlight = null;
+        resolveFlight(resolution);
+      },
+    };
+    explicitAdoptionFlight = flight;
+
+    if (!beginResolving(generation, token)) {
+      flight.settle({ status: "superseded" });
+      return;
+    }
     accessToken = token;
-    // Clear the prior session's identity synchronously so the getters return
-    // the documented null/[] defaults until the fresh /auth/me resolves —
-    // otherwise a token switch (e.g. logging in as a different user) would leak
-    // the previous session's userId/orgId/entitlements until the new fetch
-    // lands. The realtime consumer hooks read the getters on events (not by
-    // polling), so this introduces no flicker: a same-user refresh re-commits
-    // the same orgId without firing `onOrgChange`.
     identity = null;
-    void fetchIdentity(token).then((next) =>
-      commitIdentity(generation, token, next),
+    continuityBaseline = null;
+    pendingRefreshBaseline = null;
+    scheduleRefresh(expiresIn);
+    void startIdentityFlight(generation, token, null, false, false).then(
+      flight.settle,
+      () => flight.settle(markUnavailable(generation, token)),
     );
   }
 
-  /**
-   * Clear all token + identity state synchronously and reset org tracking.
-   *
-   * `onAccessTokenSet(null)` fires synchronously (no `/auth/me` round-trip on
-   * logout). `previousOrgId` is reset so a subsequent login re-fires
-   * `onOrgChange` even when the user logs back into the same org.
-   */
-  function clearToken(): void {
-    tokenGeneration += 1; // invalidate any in-flight /auth/me
-    accessToken = null;
-    identity = null;
-    previousOrgId = null;
-    hasEmittedOrgId = false;
-    emitAccessTokenSet(null);
-  }
+  let store!: ConcreteAuthStore;
+  store = {
+    getAccessToken: () => accessToken,
+    hasAccessToken: () => accessToken !== null,
 
-  async function performRefresh(): Promise<string | null> {
-    try {
-      const res = await fetch(`${baseUrl}${refreshPath}`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        clearToken();
-        return null;
-      }
-      const json = (await res.json()) as Record<string, unknown>;
-      const token = extractAccessToken(json);
-      if (token) {
-        const expiresIn =
-          typeof json.expiresIn === "number" ? json.expiresIn : 900;
-        applyToken(token);
-        scheduleRefresh(expiresIn);
-      }
-      return token;
-    } catch {
-      clearToken();
-      return null;
-    }
-  }
-
-  const store: AuthStore = {
-    getAccessToken() {
-      return accessToken;
-    },
-
-    hasAccessToken() {
-      return accessToken !== null;
-    },
-
-    setAccessToken(token: string, expiresIn: number) {
-      applyToken(token);
-      scheduleRefresh(expiresIn);
+    setAccessToken(token, expiresIn) {
+      startExplicitToken(token, expiresIn);
     },
 
     clearAccessToken() {
-      clearToken();
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
+      supersedeExplicitAdoption();
+      if (clearCurrentGeneration(tokenGeneration)) {
+        const clearedGeneration = tokenGeneration;
+        emitLogout(
+          () =>
+            tokenGeneration === clearedGeneration && accessToken === null,
+        );
       }
-      // Emits unconditionally so consumers can rely on `onLogout` as a
-      // canonical logout signal regardless of prior token state.
-      emitLogout();
     },
 
     async ensureAccessToken(forceRefresh = false) {
-      if (!forceRefresh && accessToken) return accessToken;
-      if (refreshPromise) return refreshPromise;
-      refreshPromise = performRefresh().finally(() => {
-        refreshPromise = null;
-      });
-      return refreshPromise;
+      if (
+        !forceRefresh &&
+        accessToken &&
+        identity &&
+        !identityFlight &&
+        !refreshFlight &&
+        sessionState.status === "ready"
+      ) {
+        return accessToken;
+      }
+      const result = forceRefresh
+        ? await store.resolveSession({ refresh: true })
+        : await store.resolveSession();
+      return result.status === "ready" || result.status === "unavailable"
+        ? result.token
+        : null;
     },
 
-    /**
-     * LOCAL-DEV ONLY (CEL-1364) — see the `AuthStore.devLogin` doc comment.
-     *
-     * Adoption deliberately routes through `store.setAccessToken()` rather than
-     * touching `applyToken` / `scheduleRefresh` directly, so there is exactly
-     * ONE token-adoption path shared with verify-otp: same identity fetch, same
-     * refresh scheduling, same listener fan-out and ordering.
-     */
+    resolveSession(options: ResolveSessionOptions = {}) {
+      const shouldRefresh =
+        options.refresh === true ||
+        (options.refresh === undefined && accessToken === null);
+      const operation = explicitAdoptionFlight
+        ? explicitAdoptionFlight.promise
+        : refreshFlight
+          ? refreshFlight.promise
+          : shouldRefresh
+            ? runRefresh(tokenGeneration, currentBaseline())
+            : resolveCurrentSession();
+      return waitForCaller(operation, options.signal);
+    },
+
     async devLogin(email: string): Promise<DevLoginResult> {
-      let res: Response;
+      let response: Response;
       try {
-        res = await fetch(`${baseUrl}/test/login`, {
+        response = await fetchAuthRequest(baseUrl, "/test/login", {
           method: "POST",
-          // The route also sets the BFF session + refresh cookies the OTP flow
-          // sets; `include` is what lets a subsequent `/auth/refresh` work.
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email }),
@@ -347,8 +714,8 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
         };
       }
 
-      if (!res.ok) {
-        if (res.status === 404) {
+      if (!response.ok) {
+        if (response.status === 404) {
           return {
             ok: false,
             reason: "test-endpoints-disabled",
@@ -356,7 +723,7 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
             message: DEV_LOGIN_MESSAGES["test-endpoints-disabled"],
           };
         }
-        if (res.status === 429) {
+        if (response.status === 429) {
           return {
             ok: false,
             reason: "rate-limited",
@@ -364,7 +731,7 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
             message: DEV_LOGIN_MESSAGES["rate-limited"],
           };
         }
-        if (res.status === 403) {
+        if (response.status === 403) {
           return {
             ok: false,
             reason: "forbidden",
@@ -375,48 +742,36 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
         return {
           ok: false,
           reason: "unexpected",
-          status: res.status,
-          message: `Dev sign-in failed (HTTP ${res.status}).`,
+          status: response.status,
+          message: `Dev sign-in failed (HTTP ${response.status}).`,
         };
       }
 
-      // Built once: three distinct malformed shapes converge on it below.
       const malformed: DevLoginFailure = {
         ok: false,
         reason: "malformed-response",
-        status: res.status,
+        status: response.status,
         message: DEV_LOGIN_MESSAGES["malformed-response"],
       };
 
-      let parsed: unknown;
+      let raw: unknown;
       try {
-        parsed = await res.json();
+        raw = await response.json();
       } catch {
         return malformed;
       }
-
-      // `res.json()` resolving is not the same as "we got an object". A body of
-      // literal `null` (or a bare string/number) parses fine, and
-      // `extractAccessToken` dereferences its argument — so passing `null`
-      // through would THROW out of a function whose result type promises it
-      // never does, leaving the DEV button with no error channel at all.
-      // Arrays fall through: they are objects, carry no token, and reach the
-      // same `malformed` below.
-      if (parsed === null || typeof parsed !== "object") {
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
         return malformed;
       }
-      const json = parsed as Record<string, unknown>;
 
+      const json = raw as Record<string, unknown>;
       const token = extractAccessToken(json);
-      if (!token) {
-        return malformed;
-      }
+      if (!token) return malformed;
 
       const expiresIn =
         typeof json.expiresIn === "number"
           ? json.expiresIn
           : DEFAULT_ACCESS_TOKEN_TTL;
-
       store.setAccessToken(token, expiresIn);
 
       return {
@@ -428,21 +783,24 @@ export function createAuthStore(config: AuthStoreConfig): AuthStore {
       };
     },
 
-    getUserId() {
-      return identity?.userId ?? null;
-    },
+    getUserId: () => identity?.id ?? null,
+    getOrgId: () => identity?.orgId ?? null,
+    getUserType: () => identity?.userType ?? null,
+    getEntitlements: () =>
+      identity?.entitlements ? [...identity.entitlements] : [],
 
-    getOrgId() {
-      return identity?.orgId ?? null;
-    },
+    getSessionState: () => copySessionState(sessionState),
 
-    getUserType() {
-      return identity?.userType ?? null;
-    },
-
-    getEntitlements() {
-      // Defensive copy; [] when logged out or identity unresolved.
-      return identity ? [...identity.entitlements] : [];
+    onSessionStateChange(listener) {
+      sessionStateListeners.add(listener);
+      try {
+        listener(copySessionState(sessionState));
+      } catch {
+        // Immediate delivery has the same isolation as later notifications.
+      }
+      return () => {
+        sessionStateListeners.delete(listener);
+      };
     },
 
     onOrgChange(listener) {

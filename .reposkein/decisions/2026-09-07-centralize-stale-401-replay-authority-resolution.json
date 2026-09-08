@@ -1,0 +1,30 @@
+{
+  "id": "adr:2026-09-07-centralize-stale-401-replay-authority-resolution",
+  "alternatives": "Let each transport adapter refresh and compare tokens independently; replay whenever any replacement access token is available.",
+  "anchors": [
+    {
+      "hash": "00fdd4c39886ddda1b2894ea7840e1318f09ee3b871d0319a66eff18bce83e8d",
+      "kind": "Function",
+      "name": "resolveSessionForReplay",
+      "node_id": "rs1:7dc1dbe8d512:func:src/session-continuity.ts#resolveSessionForReplay@3",
+      "path": "src/session-continuity.ts"
+    }
+  ],
+  "body_hash": "v2:4525b2559bef1708547e1890c80eb0981a739792035c7f172f200f8ea806611e",
+  "consequences": "Adapters share one authority-preserving concurrency contract. Unavailable identity authority blocks replay while retaining the credential. Same-user token rotation remains replayable after validation.",
+  "context": "Multiple transport adapters handle 401 responses while session credentials can rotate concurrently. Duplicating refresh and replay checks in each adapter permits a stale request to refresh, clear, or replay under a replacement user's session.",
+  "decided_at": "2026-09-07",
+  "decided_by": "agent",
+  "decision": "Route 401 recovery through resolveSessionForReplay. Capture validated user and organisation authority before transport, resolve refresh centrally, and require a final synchronous canReplaySession check immediately before retry transport.",
+  "paths": [
+    "src/session-continuity.ts",
+    "src/auth-store.ts",
+    "src/auth-client.ts"
+  ],
+  "status": "proposed",
+  "supersedes": [],
+  "title": "Centralize stale-401 replay authority resolution",
+  "trigger": {
+    "kind": "manual"
+  }
+}

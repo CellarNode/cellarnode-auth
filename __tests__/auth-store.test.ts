@@ -286,7 +286,7 @@ describe("createAuthStore — identity from /auth/me (CEL-622)", () => {
     expect(store.getEntitlements()).toEqual([]);
   });
 
-  it("identity becomes null (tolerated) when /auth/me fails — does not throw", async () => {
+  it("clears the current generation on confirmed /auth/me revocation", async () => {
     global.fetch = routedFetch({ me: null }) as unknown as typeof fetch;
     const store = createAuthStore({ baseUrl: "http://localhost:4000" });
     expect(() => store.setAccessToken("tok", 900)).not.toThrow();
@@ -294,8 +294,7 @@ describe("createAuthStore — identity from /auth/me (CEL-622)", () => {
     expect(store.getOrgId()).toBeNull();
     expect(store.getUserId()).toBeNull();
     expect(store.getEntitlements()).toEqual([]);
-    // Token itself is still retained (the failure is tolerated, like performRefresh).
-    expect(store.getAccessToken()).toBe("tok");
+    expect(store.getAccessToken()).toBeNull();
   });
 
   it("clears prior identity synchronously on a token switch (no stale leak before /auth/me resolves)", async () => {

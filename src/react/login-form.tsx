@@ -218,7 +218,7 @@ export function LoginForm({
       if (result.user.userType !== userType) {
         const msg = `This portal is for ${userType} accounts only.`;
         setError(msg);
-        if (onError) onError({ code: "USER_TYPE_MISMATCH", message: msg, authenticatedUserType: result.user.userType });
+        if (onError) onError({ code: "USER_TYPE_MISMATCH", message: msg, authenticatedUserType: result.user.userType ?? undefined });
         authStore.clearAccessToken();
         return;
       }

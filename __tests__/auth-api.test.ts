@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createAuthApi } from "../src/auth-api.js";
+import { createAuthStore } from "../src/auth-store.js";
 import { AuthError } from "../src/types.js";
 import type { AuthClient, AuthStore } from "../src/types.js";
 
@@ -77,6 +78,90 @@ describe("createAuthApi", () => {
     expect(store.setAccessToken).toHaveBeenCalledWith("tok_new", 900);
   });
 
+  it("does not apply full /auth/me validation to sparse verify-otp user", async () => {
+    const client = mockClient();
+    const store = mockStore();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accessToken: "tok_sparse",
+      expiresIn: 900,
+      user: {
+        id: "u1",
+        email: "t@t.com",
+        name: "Test",
+        userType: null,
+        orgId: null,
+        roles: [],
+      },
+    });
+
+    const api = createAuthApi({ client, store });
+    await expect(api.verifyOtp("t@t.com", "123456")).resolves.toMatchObject({
+      user: { id: "u1", userType: null, orgId: null },
+    });
+  });
+
+  it.each([
+    ["missing user", undefined],
+    ["empty id", { id: "", email: "t@t.com", name: "Test", userType: "producer", orgId: null, roles: [] }],
+    ["missing email", { id: "u1", name: "Test", userType: "producer", orgId: null, roles: [] }],
+    ["missing name", { id: "u1", email: "t@t.com", userType: "producer", orgId: null, roles: [] }],
+    ["missing userType", { id: "u1", email: "t@t.com", name: "Test", orgId: null, roles: [] }],
+    ["unknown userType", { id: "u1", email: "t@t.com", name: "Test", userType: "broker", orgId: null, roles: [] }],
+    ["missing orgId", { id: "u1", email: "t@t.com", name: "Test", userType: "producer", roles: [] }],
+    ["non-string phone", { id: "u1", email: "t@t.com", name: "Test", phone: 42, userType: "producer", orgId: null, roles: [] }],
+    ["malformed roles", { id: "u1", email: "t@t.com", name: "Test", userType: "producer", orgId: null, roles: ["member", 4] }],
+  ])("rejects verify-otp %s before token adoption", async (_case, user) => {
+    const client = mockClient();
+    const store = mockStore();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accessToken: "tok_invalid",
+      expiresIn: 900,
+      user,
+    });
+    const api = createAuthApi({ client, store });
+
+    await expect(api.verifyOtp("t@t.com", "123456")).rejects.toMatchObject({
+      status: 500,
+      code: "OTP_USER_INVALID",
+      message: "Invalid user in verify-otp response",
+    });
+    expect(store.setAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("defensively copies verify-otp roles and strips full-profile extras", async () => {
+    const client = mockClient();
+    const store = mockStore();
+    const roles = ["member"];
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accessToken: "tok_new",
+      expiresIn: 900,
+      user: {
+        id: "u1",
+        email: "t@t.com",
+        name: "Test",
+        userType: "distributor",
+        orgId: "org_1",
+        roles,
+        createdAt: "ignored",
+        entitlements: ["ignored"],
+      },
+    });
+    const api = createAuthApi({ client, store });
+
+    const result = await api.verifyOtp("t@t.com", "123456");
+    roles.push("admin");
+
+    expect(result.user).toEqual({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "distributor",
+      orgId: "org_1",
+      roles: ["member"],
+    });
+    expect(store.setAccessToken).toHaveBeenCalledWith("tok_new", 900);
+  });
+
   it("verifyOtp extracts token from nested response shapes", async () => {
     const client = mockClient();
     const store = mockStore();
@@ -130,7 +215,32 @@ describe("createAuthApi", () => {
     expect(headers["Authorization"]).toBe("Bearer tok_explicit");
   });
 
-  it("getMe calls GET /auth/me without explicit token (uses client auth)", async () => {
+  it("treats an empty string as an explicit token without resolving", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      orgId: null,
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const store = mockStore();
+    store.resolveSession = vi.fn();
+    const api = createAuthApi({ client, store });
+
+    await api.getMe("");
+
+    expect(store.resolveSession).not.toHaveBeenCalled();
+    expect(client.fetch).toHaveBeenCalledWith("/auth/me", {
+      method: "GET",
+      skipAuth: true,
+      headers: { Authorization: "Bearer " },
+    });
+  });
+
+  it("getMe without resolver uses explicit no-refresh transport", async () => {
     const client = mockClient();
     (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "u1",
@@ -147,7 +257,127 @@ describe("createAuthApi", () => {
 
     const callArgs = (client.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const opts = callArgs[1] as RequestInit & { skipAuth?: boolean };
-    expect(opts.skipAuth).toBeUndefined();
+    expect(opts.skipAuth).toBe(true);
+  });
+
+  it("tokenless getMe shares an active identity read then revalidates", async () => {
+    let resolveFirst!: (value: Response) => void;
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const fullUser = {
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer" as const,
+      orgId: "org_1",
+      roles: ["member"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ...fullUser, roles: [] }),
+      });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    const client = mockClient();
+    const api = createAuthApi({ client, store });
+
+    store.setAccessToken("tok_current", 900);
+    const joined = api.getMe();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFirst({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(fullUser),
+    } as Response);
+    await expect(joined).resolves.toMatchObject({ roles: ["member"] });
+
+    await expect(api.getMe()).resolves.toMatchObject({ roles: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(client.fetch).not.toHaveBeenCalled();
+  });
+
+  it("explicit current-token getMe never enters resolver or refresh paths", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      orgId: "org_1",
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const store = mockStore();
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_current");
+    store.resolveSession = vi.fn();
+    const api = createAuthApi({ client, store });
+
+    await expect(api.getMe("tok_current")).resolves.toMatchObject({ id: "u1" });
+
+    expect(store.resolveSession).not.toHaveBeenCalled();
+    expect(client.fetch).toHaveBeenCalledWith("/auth/me", {
+      method: "GET",
+      skipAuth: true,
+      headers: { Authorization: "Bearer tok_current" },
+    });
+  });
+
+  it("rejects an explicit current-token identity response after token replacement", async () => {
+    let resolveIdentity!: (value: unknown) => void;
+    const identity = new Promise<unknown>((resolve) => {
+      resolveIdentity = resolve;
+    });
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockReturnValue(identity);
+    const store = mockStore();
+    (store.getAccessToken as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce("tok_a")
+      .mockReturnValue("tok_b");
+    store.resolveSession = vi.fn();
+    const api = createAuthApi({ client, store });
+
+    const pending = api.getMe("tok_a");
+    resolveIdentity({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      orgId: "org_1",
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await expect(pending).rejects.toMatchObject({
+      status: 409,
+      code: "SESSION_SUPERSEDED",
+    });
+    expect(store.resolveSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed explicit-token /auth/me without refreshing", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "u1",
+      email: "t@t.com",
+      name: "Test",
+      userType: "producer",
+      roles: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const store = mockStore();
+    const api = createAuthApi({ client, store });
+
+    await expect(api.getMe("tok_external")).rejects.toMatchObject({
+      status: 503,
+      code: "AUTHORITY_UNAVAILABLE",
+    });
+    expect(store.ensureAccessToken).not.toHaveBeenCalled();
   });
 
   it("logout calls POST /auth/logout", async () => {
@@ -157,7 +387,7 @@ describe("createAuthApi", () => {
 
     expect(client.fetch).toHaveBeenCalledWith(
       "/auth/logout",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({ method: "POST", skipAuth: true }),
     );
   });
 });

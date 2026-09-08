@@ -3,12 +3,12 @@ import type {
   AuthApi,
   AuthClient,
   AuthStore,
-  AuthUser,
   RegisterInput,
   RequestOtpResponse,
   VerifyOtpResponse,
 } from "./types.js";
 import { extractAccessToken } from "./extract-token.js";
+import { parseAuthUser, parseVerifyOtpUser } from "./auth-user.js";
 
 export function createAuthApi(config: {
   client: AuthClient;
@@ -51,6 +51,15 @@ export function createAuthApi(config: {
         throw new AuthError(500, "TOKEN_EXTRACTION_FAILED", "No access token found in verify-otp response");
       }
 
+      const user = parseVerifyOtpUser(raw.user);
+      if (!user) {
+        throw new AuthError(
+          500,
+          "OTP_USER_INVALID",
+          "Invalid user in verify-otp response",
+        );
+      }
+
       const expiresIn =
         typeof raw.expiresIn === "number" ? raw.expiresIn : 900;
 
@@ -59,23 +68,65 @@ export function createAuthApi(config: {
       return {
         accessToken: token,
         expiresIn,
-        user: raw.user as AuthUser,
+        user,
       };
     },
 
     async logout() {
-      await client.fetch<void>("/auth/logout", { method: "POST" });
+      const token = store.getAccessToken();
+      await client.fetch<void>("/auth/logout", {
+        method: "POST",
+        skipAuth: true,
+        ...(token
+          ? { headers: { Authorization: `Bearer ${token}` } }
+          : {}),
+      });
     },
 
     async getMe(token?: string) {
-      if (token) {
-        return client.fetch<AuthUser>("/auth/me", {
+      const currentToken = store.getAccessToken();
+      const explicitCurrentToken = token !== undefined && token === currentToken;
+      if (store.resolveSession && token === undefined) {
+        const resolution = await store.resolveSession();
+        if (resolution.status === "ready") return resolution.user;
+        if (resolution.status === "unauthorized") {
+          throw new AuthError(401, "UNAUTHORIZED", "Session is unauthorized");
+        }
+        if (resolution.status === "superseded") {
+          throw new AuthError(409, "SESSION_SUPERSEDED", "Session was superseded");
+        }
+        throw new AuthError(
+          503,
+          "AUTHORITY_UNAVAILABLE",
+          "Session identity is unavailable",
+        );
+      }
+
+      const raw = token !== undefined
+        ? await client.fetch<unknown>("/auth/me", {
           method: "GET",
           skipAuth: true,
           headers: { Authorization: `Bearer ${token}` },
-        });
+        })
+        : await client.fetch<unknown>("/auth/me", {
+            method: "GET",
+            skipAuth: true,
+            ...(currentToken
+              ? { headers: { Authorization: `Bearer ${currentToken}` } }
+              : {}),
+          });
+      if (explicitCurrentToken && store.getAccessToken() !== token) {
+        throw new AuthError(409, "SESSION_SUPERSEDED", "Session was superseded");
       }
-      return client.fetch<AuthUser>("/auth/me", { method: "GET" });
+      const user = parseAuthUser(raw);
+      if (!user) {
+        throw new AuthError(
+          503,
+          "AUTHORITY_UNAVAILABLE",
+          "Session identity is unavailable",
+        );
+      }
+      return user;
     },
   };
 }
