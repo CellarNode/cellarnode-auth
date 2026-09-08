@@ -273,6 +273,34 @@ describe("createAuthClient", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps same-token outage unavailable when revalidation starts before settlement", async () => {
+    const store = mockStore("tok_old", {
+      status: "unavailable",
+      token: "tok_old",
+    });
+    let state: "ready" | "resolving" = "ready";
+    store.getSessionState = vi.fn(() =>
+      state === "ready"
+        ? { status: "ready", token: "tok_old", user: userA }
+        : { status: "resolving", token: "tok_old" },
+    );
+    (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      state = "resolving";
+      return { status: "unavailable", token: "tok_old" };
+    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(response({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401));
+
+    const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
+    await expect(client.fetch("/api/write")).rejects.toMatchObject({
+      status: 503,
+      code: "SESSION_UNAVAILABLE",
+    });
+    expect(store.clearAccessToken).not.toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("returns actual retry failure and preserves validated session", async () => {
     const store = mockStore();
     global.fetch = vi
@@ -286,6 +314,28 @@ describe("createAuthClient", () => {
       code: "UPSTREAM_DOWN",
     });
     expect(store.clearAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("returns retry 401 without clearing session or sending a third request", async () => {
+    const store = mockStore();
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401))
+      .mockResolvedValueOnce(response({ error: "Forbidden resource", code: "RESOURCE_DENIED" }, 401));
+    const onAuthFailure = vi.fn();
+    const client = createAuthClient({
+      baseUrl: "http://localhost:4000",
+      store,
+      onAuthFailure,
+    });
+
+    await expect(client.fetch("/api/write")).rejects.toMatchObject({
+      status: 401,
+      code: "RESOURCE_DENIED",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(store.clearAccessToken).not.toHaveBeenCalled();
+    expect(onAuthFailure).not.toHaveBeenCalled();
   });
 
   it("calls onAuthFailure only for confirmed refresh revocation", async () => {

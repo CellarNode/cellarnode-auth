@@ -116,7 +116,8 @@ export async function resolveSessionForReplay(
     const unavailableState = store.getSessionState?.();
     return store.getAccessToken() === resolution.token &&
       (unavailableState === undefined ||
-        (unavailableState.status === "unavailable" &&
+        ((unavailableState.status === "unavailable" ||
+          unavailableState.status === "resolving") &&
           unavailableState.token === resolution.token))
       ? resolution
       : { status: "superseded" };

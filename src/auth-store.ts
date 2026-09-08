@@ -50,6 +50,12 @@ interface RefreshFlight {
   promise: Promise<SessionResolution>;
 }
 
+interface ExplicitAdoptionFlight {
+  generation: number;
+  promise: Promise<SessionResolution>;
+  settle: (resolution: SessionResolution) => void;
+}
+
 function copySessionState(state: SessionState): SessionState {
   return state.status === "ready"
     ? { ...state, user: copyAuthUser(state.user) }
@@ -79,6 +85,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let identityFlight: IdentityFlight | null = null;
   let refreshFlight: RefreshFlight | null = null;
+  let explicitAdoptionFlight: ExplicitAdoptionFlight | null = null;
   let tokenGeneration = 0;
   let previousOrgId: string | null = null;
   let hasEmittedOrgId = false;
@@ -98,6 +105,15 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   const sessionStateListeners = new Set<SessionStateListener>();
   const stateQueue: SessionState[] = [];
   let publishingState = false;
+
+  function settleExplicitGeneration(
+    generation: number,
+    resolution: SessionResolution,
+  ): void {
+    if (explicitAdoptionFlight?.generation === generation) {
+      explicitAdoptionFlight.settle(resolution);
+    }
+  }
 
   function emitOrgChange(
     orgId: string | null,
@@ -273,7 +289,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       null,
       () => tokenGeneration === clearedGeneration && accessToken === null,
     );
-    return tokenGeneration === clearedGeneration && accessToken === null;
+    const cleared =
+      tokenGeneration === clearedGeneration && accessToken === null;
+    if (cleared) {
+      settleExplicitGeneration(generation, { status: "unauthorized" });
+    }
+    return cleared;
   }
 
   function markUnavailable(
@@ -288,7 +309,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     if (generation !== tokenGeneration || accessToken !== token) {
       return { status: "superseded" };
     }
-    return { status: "unavailable", token };
+    const result: SessionResolution = { status: "unavailable", token };
+    settleExplicitGeneration(generation, result);
+    return result;
   }
 
   function commitReady(
@@ -329,7 +352,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       return { status: "superseded" };
     }
 
-    return { status: "ready", token, user: copyAuthUser(identity) };
+    const result: SessionResolution = {
+      status: "ready",
+      token,
+      user: copyAuthUser(identity),
+    };
+    settleExplicitGeneration(generation, result);
+    return result;
   }
 
   async function evaluateIdentity(
@@ -569,18 +598,49 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     });
   }
 
+  function supersedeExplicitAdoption(): void {
+    const flight = explicitAdoptionFlight;
+    if (!flight) return;
+    explicitAdoptionFlight = null;
+    flight.settle({ status: "superseded" });
+  }
+
   function startExplicitToken(token: string, expiresIn: number): void {
-    const previousGeneration = tokenGeneration;
-    if (!beginResolving(previousGeneration, token)) return;
     tokenGeneration += 1;
     const generation = tokenGeneration;
+    supersedeExplicitAdoption();
     refreshFlight = null;
+
+    let settled = false;
+    let resolveFlight!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => {
+      resolveFlight = resolve;
+    });
+    const flight: ExplicitAdoptionFlight = {
+      generation,
+      promise,
+      settle(resolution) {
+        if (settled) return;
+        settled = true;
+        if (explicitAdoptionFlight === flight) explicitAdoptionFlight = null;
+        resolveFlight(resolution);
+      },
+    };
+    explicitAdoptionFlight = flight;
+
+    if (!beginResolving(generation, token)) {
+      flight.settle({ status: "superseded" });
+      return;
+    }
     accessToken = token;
     identity = null;
     continuityBaseline = null;
     pendingRefreshBaseline = null;
     scheduleRefresh(expiresIn);
-    void startIdentityFlight(generation, token, null, false, false);
+    void startIdentityFlight(generation, token, null, false, false).then(
+      flight.settle,
+      () => flight.settle(markUnavailable(generation, token)),
+    );
   }
 
   let store!: ConcreteAuthStore;
@@ -593,6 +653,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     },
 
     clearAccessToken() {
+      supersedeExplicitAdoption();
       if (clearCurrentGeneration(tokenGeneration)) {
         const clearedGeneration = tokenGeneration;
         emitLogout(
@@ -625,11 +686,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       const shouldRefresh =
         options.refresh === true ||
         (options.refresh === undefined && accessToken === null);
-      const operation = refreshFlight
-        ? refreshFlight.promise
-        : shouldRefresh
-          ? runRefresh(tokenGeneration, currentBaseline())
-          : resolveCurrentSession();
+      const operation = explicitAdoptionFlight
+        ? explicitAdoptionFlight.promise
+        : refreshFlight
+          ? refreshFlight.promise
+          : shouldRefresh
+            ? runRefresh(tokenGeneration, currentBaseline())
+            : resolveCurrentSession();
       return waitForCaller(operation, options.signal);
     },
 

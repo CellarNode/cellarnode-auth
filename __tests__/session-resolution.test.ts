@@ -148,6 +148,104 @@ describe("atomic session resolution (CEL-1782)", () => {
     ).toHaveLength(0);
   });
 
+  it("joins explicit adoption when a resolving observer requests refresh", async () => {
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      const token = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(
+        response(token === "Bearer tok_a" ? { ...userA, orgId: "org_a" } : userA),
+      );
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_b", 900);
+    await store.resolveSession({ refresh: false });
+
+    let observerResolution: Promise<unknown> | null = null;
+    store.onSessionStateChange((state) => {
+      if (state.status === "resolving" && state.token === "tok_a") {
+        observerResolution = store.resolveSession({ refresh: true });
+      }
+    });
+
+    store.setAccessToken("tok_a", 900);
+
+    await expect(observerResolution).resolves.toMatchObject({
+      status: "ready",
+      token: "tok_a",
+    });
+    expect(store.getAccessToken()).toBe("tok_a");
+    expect(store.getSessionState()).toMatchObject({
+      status: "ready",
+      token: "tok_a",
+    });
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith("/auth/refresh"),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("lets nested explicit login supersede an adoption without stale events", async () => {
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      const token = new Headers(init?.headers).get("Authorization")?.slice(7);
+      return Promise.resolve(
+        response({ ...userA, orgId: token === "tok_c" ? "org_c" : "org_b" }),
+      );
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_b", 900);
+    await store.resolveSession({ refresh: false });
+    const tokenEvents: Array<string | null> = [];
+    store.onAccessTokenSet((token) => tokenEvents.push(token));
+    store.onSessionStateChange((state) => {
+      if (state.status === "resolving" && state.token === "tok_a") {
+        store.setAccessToken("tok_c", 900);
+      }
+    });
+
+    store.setAccessToken("tok_a", 900);
+    await expect(store.resolveSession({ refresh: false })).resolves.toMatchObject({
+      status: "ready",
+      token: "tok_c",
+    });
+
+    expect(store.getAccessToken()).toBe("tok_c");
+    expect(store.getOrgId()).toBe("org_c");
+    expect(tokenEvents).toEqual(["tok_c"]);
+    expect(
+      fetchMock.mock.calls.some(([, init]) =>
+        new Headers(init?.headers).get("Authorization") === "Bearer tok_a",
+      ),
+    ).toBe(false);
+  });
+
+  it("lets nested logout supersede explicit adoption", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(userA));
+    global.fetch = fetchMock;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_b", 900);
+    await store.resolveSession({ refresh: false });
+    store.onSessionStateChange((state) => {
+      if (state.status === "resolving" && state.token === "tok_a") {
+        store.clearAccessToken();
+      }
+    });
+
+    store.setAccessToken("tok_a", 900);
+
+    await expect(store.resolveSession({ refresh: false })).resolves.toEqual({
+      status: "unauthorized",
+    });
+    expect(store.getAccessToken()).toBeNull();
+    expect(store.getSessionState()).toEqual({ status: "unauthorized" });
+    expect(
+      fetchMock.mock.calls.some(([, init]) =>
+        new Headers(init?.headers).get("Authorization") === "Bearer tok_a",
+      ),
+    ).toBe(false);
+  });
+
   it("deduplicates timer and manual refresh into one refresh and identity flight", async () => {
     vi.useFakeTimers();
     const refresh = deferred<Response>();
