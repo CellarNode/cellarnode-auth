@@ -1,0 +1,30 @@
+src/auth-transport.ts
+  s_0099ecd76e936c::t_4c873a67d56a57 2,15-16
+  s_a6af55519d5aa4::t_ec9930ecff98a4 17
+__tests__/auth-transport.test.ts
+  s_0099ecd76e936c::t_4c873a67d56a57 127-182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b93a9e8fb61024baabbaf9f98030ac2f330e87ca",
+  "prompts": {},
+  "sessions": {
+    "s_0099ecd76e936c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0766e-b154-7fb2-b9c3-58aa7940eda0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    },
+    "s_a6af55519d5aa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "717faee6-cba0-48a0-9abd-d9aeeb304b85",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
