@@ -1,0 +1,35 @@
+src/auth-transport.ts
+  s_0099ecd76e936c::t_08501d1ecf39e7 1-54
+src/auth-client.ts
+  s_0099ecd76e936c::t_08501d1ecf39e7 8,61,77
+__tests__/auth-transport.test.ts
+  s_0099ecd76e936c::t_1eedcd55f71239 1-210
+README.md
+  s_0099ecd76e936c::t_1eedcd55f71239 38-44
+package.json
+  s_0099ecd76e936c::t_08501d1ecf39e7 3
+CHANGELOG.md
+  s_0099ecd76e936c::t_1eedcd55f71239 3-17
+src/auth-store.ts
+  s_0099ecd76e936c::t_08501d1ecf39e7 3,217,221-224,233,471,639
+AGENTS.md
+  s_0099ecd76e936c::t_1eedcd55f71239 77,79-83
+package-lock.json
+  s_0099ecd76e936c::t_6640291d8a2881 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4329331036460c119705f104c1836f618bff8487",
+  "prompts": {},
+  "sessions": {
+    "s_0099ecd76e936c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0766e-b154-7fb2-b9c3-58aa7940eda0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
