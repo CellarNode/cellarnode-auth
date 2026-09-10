@@ -66,9 +66,16 @@ export class AuthError extends Error {
 export interface AuthStoreConfig {
   baseUrl: string;
   refreshPath?: string;
+  /** Non-rotating authority remint path (CEL-1853). Defaults to `/auth/revalidate`. */
+  revalidatePath?: string;
   refreshBuffer?: number;
   /** Maximum duration for internal refresh and identity requests. Default 10000ms. */
   resolutionTimeoutMs?: number;
+}
+
+export interface RevalidateSessionOptions {
+  /** Cancels only this caller's wait. Shared authority remint continues. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -266,6 +273,12 @@ export interface AuthStore {
 
 export interface ConcreteAuthStore extends AuthStore {
   resolveSession(options?: ResolveSessionOptions): Promise<SessionResolution>;
+  /**
+   * Remint access claims without spending the refresh cookie (CEL-1853).
+   * Joins an in-flight refresh/adoption when present. Does not redefine
+   * `resolveSession({ refresh: true })`.
+   */
+  revalidateSession(options?: RevalidateSessionOptions): Promise<SessionResolution>;
   onSessionStateChange(listener: SessionStateListener): () => void;
   getSessionState(): SessionState;
 }

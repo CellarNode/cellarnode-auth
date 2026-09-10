@@ -11,6 +11,7 @@ import type {
   LogoutListener,
   OrgChangeListener,
   ResolveSessionOptions,
+  RevalidateSessionOptions,
   SessionResolution,
   SessionState,
   SessionStateListener,
@@ -50,6 +51,11 @@ interface RefreshFlight {
   promise: Promise<SessionResolution>;
 }
 
+interface AuthorityFlight {
+  generation: number;
+  promise: Promise<SessionResolution>;
+}
+
 interface ExplicitAdoptionFlight {
   generation: number;
   promise: Promise<SessionResolution>;
@@ -72,6 +78,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   const {
     baseUrl,
     refreshPath = "/auth/refresh",
+    revalidatePath = "/auth/revalidate",
     refreshBuffer = 60,
     resolutionTimeoutMs = DEFAULT_RESOLUTION_TIMEOUT_MS,
   } = config;
@@ -85,6 +92,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let identityFlight: IdentityFlight | null = null;
   let refreshFlight: RefreshFlight | null = null;
+  let authorityFlight: AuthorityFlight | null = null;
   let explicitAdoptionFlight: ExplicitAdoptionFlight | null = null;
   let tokenGeneration = 0;
   let previousOrgId: string | null = null;
@@ -277,6 +285,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     pendingRefreshBaseline = null;
     identityFlight = null;
     refreshFlight = null;
+    authorityFlight = null;
     previousOrgId = null;
     hasEmittedOrgId = false;
     if (refreshTimer) {
@@ -455,6 +464,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       return Promise.resolve({ status: "superseded" });
     }
 
+    // Expiry renewal / forced refresh wins over an in-flight authority remint.
+    authorityFlight = null;
+
     if (!baseline && identityFlight?.generation === generation) {
       const pendingIdentity = identityFlight.promise;
       return pendingIdentity.then((result) => {
@@ -568,10 +580,139 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     return promise;
   }
 
+  function readErrorCode(raw: unknown): string | undefined {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const code = (raw as Record<string, unknown>).code;
+    return typeof code === "string" ? code : undefined;
+  }
+
+  /**
+   * Non-rotating authority remint (CEL-1853). Preserves the absolute refresh
+   * deadline/timer — never calls scheduleRefresh with a fresh TTL.
+   */
+  function runRevalidate(generation: number): Promise<SessionResolution> {
+    if (authorityFlight) return authorityFlight.promise;
+    if (refreshFlight) return refreshFlight.promise;
+    if (explicitAdoptionFlight) return explicitAdoptionFlight.promise;
+    if (generation !== tokenGeneration) {
+      return Promise.resolve({ status: "superseded" });
+    }
+
+    const bearerToken = accessToken;
+    if (!bearerToken) return Promise.resolve({ status: "unauthorized" });
+
+    let settle!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => {
+      settle = resolve;
+    });
+    const flight: AuthorityFlight = { generation, promise };
+    authorityFlight = flight;
+
+    if (!beginResolving(generation, bearerToken)) {
+      if (authorityFlight === flight) authorityFlight = null;
+      settle({ status: "superseded" });
+      return promise;
+    }
+
+    // Reserve a generation before POST so earlier /me reads cannot publish.
+    tokenGeneration += 1;
+    const opGeneration = tokenGeneration;
+    flight.generation = opGeneration;
+    const baseline = currentBaseline();
+
+    void (async (): Promise<SessionResolution> => {
+      let result: { response: Response; raw: unknown };
+      try {
+        result = await withResolutionTimeout(async (signal) => {
+          const response = await fetchAuthRequest(baseUrl, revalidatePath, {
+            method: "POST",
+            credentials: "omit",
+            headers: {
+              Authorization: `Bearer ${bearerToken}`,
+              "Content-Type": "application/json",
+            },
+            signal,
+          });
+          let raw: unknown = null;
+          try {
+            raw = await response.json();
+          } catch {
+            raw = null;
+          }
+          return { response, raw };
+        });
+      } catch {
+        return markUnavailable(opGeneration, accessToken);
+      }
+
+      if (opGeneration !== tokenGeneration) return { status: "superseded" };
+
+      const { response, raw } = result;
+      const errorCode = readErrorCode(raw);
+
+      if (response.status === 401 || response.status === 403) {
+        // Exactly one expiry-classified fallback to ordinary refresh.
+        if (errorCode === "ACCESS_TOKEN_EXPIRED") {
+          if (authorityFlight === flight) authorityFlight = null;
+          return runRefresh(tokenGeneration, baseline);
+        }
+        if (opGeneration !== tokenGeneration || accessToken !== bearerToken) {
+          return { status: "superseded" };
+        }
+        return clearCurrentGeneration(opGeneration)
+          ? { status: "unauthorized" }
+          : { status: "superseded" };
+      }
+
+      if (!response.ok) return markUnavailable(opGeneration, accessToken);
+      if (opGeneration !== tokenGeneration) return { status: "superseded" };
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+        return markUnavailable(opGeneration, accessToken);
+      }
+
+      const nextToken = extractAccessToken(raw as Record<string, unknown>);
+      if (!nextToken) return markUnavailable(opGeneration, accessToken);
+
+      tokenGeneration += 1;
+      const nextGeneration = tokenGeneration;
+      flight.generation = nextGeneration;
+      accessToken = nextToken;
+      identity = null;
+      // Reminted credential: retain prior baseline for continuity, allow org
+      // transition after /me (refreshed=true). Do NOT reschedule refresh.
+      pendingRefreshBaseline = baseline
+        ? { token: baseline.token, user: copyAuthUser(baseline.user) }
+        : null;
+      publishSessionState({ status: "resolving", token: nextToken });
+      if (nextGeneration !== tokenGeneration || accessToken !== nextToken) {
+        return { status: "superseded" };
+      }
+
+      return startIdentityFlight(
+        nextGeneration,
+        nextToken,
+        baseline,
+        true,
+        false,
+      );
+    })().then(
+      (result) => {
+        if (authorityFlight === flight) authorityFlight = null;
+        settle(result);
+      },
+      () => {
+        if (authorityFlight === flight) authorityFlight = null;
+        settle(markUnavailable(opGeneration, accessToken));
+      },
+    );
+    return promise;
+  }
+
   function resolveCurrentSession(): Promise<SessionResolution> {
     const token = accessToken;
     const generation = tokenGeneration;
     if (!token) return Promise.resolve({ status: "unauthorized" });
+    if (authorityFlight) return authorityFlight.promise;
     if (identityFlight?.generation === generation) {
       return identityFlight.promise;
     }
@@ -610,6 +751,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     const generation = tokenGeneration;
     supersedeExplicitAdoption();
     refreshFlight = null;
+    authorityFlight = null;
 
     let settled = false;
     let resolveFlight!: (resolution: SessionResolution) => void;
@@ -670,6 +812,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         identity &&
         !identityFlight &&
         !refreshFlight &&
+        !authorityFlight &&
         sessionState.status === "ready"
       ) {
         return accessToken;
@@ -692,7 +835,20 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           ? refreshFlight.promise
           : shouldRefresh
             ? runRefresh(tokenGeneration, currentBaseline())
-            : resolveCurrentSession();
+            : authorityFlight
+              ? authorityFlight.promise
+              : resolveCurrentSession();
+      return waitForCaller(operation, options.signal);
+    },
+
+    revalidateSession(options: RevalidateSessionOptions = {}) {
+      const operation = explicitAdoptionFlight
+        ? explicitAdoptionFlight.promise
+        : refreshFlight
+          ? refreshFlight.promise
+          : authorityFlight
+            ? authorityFlight.promise
+            : runRevalidate(tokenGeneration);
       return waitForCaller(operation, options.signal);
     },
 
