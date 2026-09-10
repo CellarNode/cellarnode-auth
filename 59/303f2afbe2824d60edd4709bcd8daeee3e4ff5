@@ -1,0 +1,18 @@
+__tests__/auth-api.test.ts
+  h_af7161f060dc1e 393-458
+src/auth-api.ts
+  h_af7161f060dc1e 95-124
+src/types.ts
+  h_af7161f060dc1e 328-329
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "59303f2afbe2824d60edd4709bcd8daeee3e4ff5",
+  "prompts": {},
+  "humans": {
+    "h_af7161f060dc1e": {
+      "author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
