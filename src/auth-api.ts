@@ -9,6 +9,7 @@ import type {
 } from "./types.js";
 import { extractAccessToken } from "./extract-token.js";
 import { parseAuthUser, parseVerifyOtpUser } from "./auth-user.js";
+import { withProductFamily } from "./session-family.js";
 
 export function createAuthApi(config: {
   client: AuthClient;
@@ -42,7 +43,15 @@ export function createAuthApi(config: {
         {
           method: "POST",
           skipAuth: true,
-          body: JSON.stringify({ email, code }),
+          // CEL-1722: declare the store's product family at login so the
+          // backend stamps the session family and delivers the family-scoped
+          // refresh cookie. Family-less stores keep the exact legacy body.
+          body: JSON.stringify(
+            withProductFamily(
+              { email, code },
+              store.getProductFamily?.() ?? null,
+            ),
+          ),
         },
       );
 

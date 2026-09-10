@@ -1,3 +1,7 @@
+import type { SessionFamily } from "./session-family.js";
+
+export type { SessionFamily };
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -71,6 +75,20 @@ export interface AuthStoreConfig {
   refreshBuffer?: number;
   /** Maximum duration for internal refresh and identity requests. Default 10000ms. */
   resolutionTimeoutMs?: number;
+  /**
+   * Product session family this store belongs to (CEL-1722): "producer" or
+   * "elabel". Producer and e-label dashboards each create their OWN store with
+   * their own family so their refresh chains (and the server-set refresh
+   * cookies `cn_rt_producer` / `cn_rt_elabel`) stay independent on the same
+   * origin.
+   *
+   * When set, the store declares the family on every `POST /auth/refresh` via
+   * the `X-CellarNode-Family` header and exposes it via `getProductFamily()`
+   * (which `createAuthApi().verifyOtp` reads to stamp `productFamily` into
+   * the login body). Omit it for family-less products (importer) and legacy
+   * behavior — no header, no body field, legacy `refresh_token` cookie.
+   */
+  productFamily?: SessionFamily;
 }
 
 export interface RevalidateSessionOptions {
@@ -238,6 +256,15 @@ export interface AuthStore {
    * rather than resolve, which callers must handle.
    */
   devLogin?(email: string): Promise<DevLoginResult>;
+
+  /**
+   * Product session family this store was configured with (CEL-1722), or null
+   * for a family-less (importer/legacy) store. Optional on the interface so
+   * custom stores stay source-compatible; `createAuthStore()` always provides
+   * it. `createAuthApi().verifyOtp` reads it to declare `productFamily` at
+   * login.
+   */
+  getProductFamily?(): SessionFamily | null;
 
   /**
    * userId of the current session, or null.
