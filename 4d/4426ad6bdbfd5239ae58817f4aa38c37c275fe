@@ -1,0 +1,29 @@
+CHANGELOG.md
+  s_42725d1706b644::t_b7122e6b0c4623 3-7
+__tests__/session-resolution.test.ts
+  s_42725d1706b644::t_150cad873ee9ea 748-928
+package.json
+  s_42725d1706b644::t_ca8166086485d6 3
+src/auth-store.ts
+  s_42725d1706b644::t_e9915918127527 14,54-58,81,95,288,467-469,583-710,715,754,815,838-851
+src/index.ts
+  s_42725d1706b644::t_5f540191b4ca0a 35
+src/types.ts
+  s_42725d1706b644::t_236445a2e3ba22 69-70,76-80,276-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4d4426ad6bdbfd5239ae58817f4aa38c37c275fe",
+  "prompts": {},
+  "sessions": {
+    "s_42725d1706b644": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d425316b-3fff-47c6-9140-9438cb5a562b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
