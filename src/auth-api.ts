@@ -92,6 +92,36 @@ export function createAuthApi(config: {
       });
     },
 
+    // CEL-1722: revoke every session in the family server-side (backend PR
+    // #713), then drop local credentials the same way ordinary logout does.
+    // A 401 means the access token is already dead, so local state is still
+    // cleared before the error propagates.
+    async signOutEverywhere() {
+      const token = store.getAccessToken();
+      try {
+        const raw = await client.fetch<{
+          success?: boolean;
+          revokedSessions?: number;
+        }>("/auth/sessions/revoke-all", {
+          method: "POST",
+          skipAuth: true,
+          ...(token
+            ? { headers: { Authorization: `Bearer ${token}` } }
+            : {}),
+        });
+        store.clearAccessToken();
+        return {
+          revokedSessions:
+            typeof raw.revokedSessions === "number" ? raw.revokedSessions : 0,
+        };
+      } catch (error) {
+        if (error instanceof AuthError && error.status === 401) {
+          store.clearAccessToken();
+        }
+        throw error;
+      }
+    },
+
     async getMe(token?: string) {
       const currentToken = store.getAccessToken();
       const explicitCurrentToken = token !== undefined && token === currentToken;

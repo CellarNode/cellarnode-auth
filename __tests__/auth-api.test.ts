@@ -390,4 +390,70 @@ describe("createAuthApi", () => {
       expect.objectContaining({ method: "POST", skipAuth: true }),
     );
   });
+
+  it("signOutEverywhere calls POST /auth/sessions/revoke-all with the current access token and clears the store", async () => {
+    const client = mockClient();
+    const store = mockStore();
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_live");
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      revokedSessions: 3,
+    });
+
+    const api = createAuthApi({ client, store });
+    const result = await api.signOutEverywhere();
+
+    expect(result).toEqual({ revokedSessions: 3 });
+    expect(client.fetch).toHaveBeenCalledWith(
+      "/auth/sessions/revoke-all",
+      {
+        method: "POST",
+        skipAuth: true,
+        headers: { Authorization: "Bearer tok_live" },
+      },
+    );
+    expect(store.clearAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("signOutEverywhere defaults revokedSessions to 0 when the response omits it", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+    });
+
+    const api = createAuthApi({ client, store: mockStore() });
+    const result = await api.signOutEverywhere();
+
+    expect(result).toEqual({ revokedSessions: 0 });
+  });
+
+  it("signOutEverywhere clears local credentials and rethrows on 401", async () => {
+    const client = mockClient();
+    const store = mockStore();
+    (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_dead");
+    (client.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new AuthError(401, "UNAUTHORIZED", "Session is unauthorized"),
+    );
+
+    const api = createAuthApi({ client, store });
+    await expect(api.signOutEverywhere()).rejects.toMatchObject({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    expect(store.clearAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("signOutEverywhere does not clear the store on non-401 failures", async () => {
+    const client = mockClient();
+    const store = mockStore();
+    (client.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new AuthError(503, "NETWORK", "API unreachable"),
+    );
+
+    const api = createAuthApi({ client, store });
+    await expect(api.signOutEverywhere()).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(store.clearAccessToken).not.toHaveBeenCalled();
+  });
 });

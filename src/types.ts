@@ -325,6 +325,8 @@ export interface AuthApi {
   requestOtp(email: string): Promise<RequestOtpResponse>;
   verifyOtp(email: string, code: string): Promise<VerifyOtpResponse>;
   logout(): Promise<void>;
+  /** Revoke all sessions in the family (POST /auth/sessions/revoke-all) and clear local credentials. */
+  signOutEverywhere(): Promise<{ revokedSessions: number }>;
   getMe(token?: string): Promise<AuthUser>;
 }
 
