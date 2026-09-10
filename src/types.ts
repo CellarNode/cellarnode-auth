@@ -21,6 +21,11 @@ export interface RegisterInput {
   email: string;
   phone?: string;
   userType: "importer" | "producer";
+  /**
+   * CEL-1814: org-invite token from the invite link. Required server-side
+   * whenever the surface's self-registration switch is closed (the default).
+   */
+  inviteToken?: string;
 }
 
 export interface RequestOtpResponse {
