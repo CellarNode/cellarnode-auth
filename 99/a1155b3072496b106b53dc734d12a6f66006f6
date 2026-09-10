@@ -1,0 +1,26 @@
+AGENTS.md
+  h_af7161f060dc1e 77-78,179-181
+__tests__/session-family.test.ts
+  h_af7161f060dc1e 1-392
+src/auth-api.ts
+  h_af7161f060dc1e 12,46-54
+src/auth-store.ts
+  h_af7161f060dc1e 4,85,517-526,953-954
+src/index.ts
+  h_af7161f060dc1e 6-13
+src/session-family.ts
+  h_af7161f060dc1e 1-68
+src/types.ts
+  h_af7161f060dc1e 1-4,78-91,260-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "99a1155b3072496b106b53dc734d12a6f66006f6",
+  "prompts": {},
+  "humans": {
+    "h_af7161f060dc1e": {
+      "author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
