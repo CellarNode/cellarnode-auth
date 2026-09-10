@@ -745,4 +745,185 @@ describe("atomic session resolution (CEL-1782)", () => {
     });
     expect(refreshCalls).toBe(2);
   });
+
+  it("deduplicates concurrent revalidateSession into one POST and one /me (CEL-1853)", async () => {
+    const revalidate = deferred<Response>();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes("/auth/revalidate")) {
+        expect(init?.credentials).toBe("omit");
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer tok_a");
+        return revalidate.promise;
+      }
+      return Promise.resolve(response({ ...userA, orgId: "org_b" }));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const a = store.revalidateSession();
+    const b = store.revalidateSession();
+    const joined = store.resolveSession({ refresh: false });
+    revalidate.resolve(response({ accessToken: "tok_b", expiresIn: 400 }));
+
+    await expect(a).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    await expect(b).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    await expect(joined).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/revalidate"))).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"))).toHaveLength(0);
+    expect(store.getOrgId()).toBe("org_b");
+  });
+
+  it("does not reschedule refresh deadline after successful revalidation", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/auth/revalidate")) {
+        return Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+      }
+      if (String(url).includes("/auth/refresh")) {
+        return Promise.resolve(response({ accessToken: "tok_rotated", expiresIn: 900 }));
+      }
+      return Promise.resolve(response(userA));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({
+      baseUrl: "http://localhost:4000",
+      refreshBuffer: 60,
+    });
+    // expiresIn 120 → timer fires at 60s
+    store.setAccessToken("tok_a", 120);
+    await store.resolveSession({ refresh: false });
+    await store.revalidateSession();
+    expect(store.getAccessToken()).toBe("tok_b");
+
+    // Original deadline still governs — not a fresh 900s TTL.
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh")),
+    ).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush();
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh")),
+    ).toHaveLength(1);
+  });
+
+  it("falls back to refresh exactly once on ACCESS_TOKEN_EXPIRED", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/auth/revalidate")) {
+        return Promise.resolve(
+          response({ error: "Access token expired", code: "ACCESS_TOKEN_EXPIRED" }, 401),
+        );
+      }
+      if (String(url).includes("/auth/refresh")) {
+        return Promise.resolve(response({ accessToken: "tok_refreshed", expiresIn: 900 }));
+      }
+      return Promise.resolve(response(userA));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    await expect(store.revalidateSession()).resolves.toMatchObject({
+      status: "ready",
+      token: "tok_refreshed",
+    });
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/revalidate"))).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"))).toHaveLength(1);
+  });
+
+  it("does not fall back to refresh on generic 401/403/503/network", async () => {
+    for (const [label, mock] of [
+      [
+        "revoked",
+        vi.fn((url: string) =>
+          String(url).includes("/auth/revalidate")
+            ? Promise.resolve(response({ code: "UNAUTHORIZED" }, 401))
+            : Promise.resolve(response(userA)),
+        ),
+      ],
+      [
+        "forbidden",
+        vi.fn((url: string) =>
+          String(url).includes("/auth/revalidate")
+            ? Promise.resolve(response({ code: "FORBIDDEN" }, 403))
+            : Promise.resolve(response(userA)),
+        ),
+      ],
+      [
+        "unavailable",
+        vi.fn((url: string) =>
+          String(url).includes("/auth/revalidate")
+            ? Promise.resolve(response({ code: "AUTHORITY_UNAVAILABLE" }, 503))
+            : Promise.resolve(response(userA)),
+        ),
+      ],
+      [
+        "network",
+        vi.fn((url: string) =>
+          String(url).includes("/auth/revalidate")
+            ? Promise.reject(new Error("network"))
+            : Promise.resolve(response(userA)),
+        ),
+      ],
+    ] as const) {
+      global.fetch = mock as typeof fetch;
+      const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+      store.setAccessToken("tok_a", 900);
+      await store.resolveSession({ refresh: false });
+      const result = await store.revalidateSession();
+      if (label === "revoked" || label === "forbidden") {
+        expect(result).toEqual({ status: "unauthorized" });
+        expect(store.getAccessToken()).toBeNull();
+      } else {
+        expect(result).toEqual({ status: "unavailable", token: "tok_a" });
+        expect(store.getAccessToken()).toBe("tok_a");
+      }
+      expect(mock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"))).toHaveLength(0);
+    }
+  });
+
+  it("lets in-flight refresh supersede revalidation; stale remint cannot clear newer state", async () => {
+    const revalidate = deferred<Response>();
+    const refresh = deferred<Response>();
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/auth/revalidate")) return revalidate.promise;
+      if (String(url).includes("/auth/refresh")) return refresh.promise;
+      return Promise.resolve(response(userA));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const reminting = store.revalidateSession();
+    const refreshing = store.resolveSession({ refresh: true });
+    refresh.resolve(response({ accessToken: "tok_refresh", expiresIn: 900 }));
+    await expect(refreshing).resolves.toMatchObject({ status: "ready", token: "tok_refresh" });
+
+    revalidate.resolve(response({ code: "UNAUTHORIZED" }, 401));
+    await expect(reminting).resolves.toEqual({ status: "superseded" });
+    expect(store.getAccessToken()).toBe("tok_refresh");
+    expect(store.getSessionState().status).toBe("ready");
+  });
+
+  it("ensureAccessToken joins authorityFlight without posting refresh", async () => {
+    const revalidate = deferred<Response>();
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/auth/revalidate")) return revalidate.promise;
+      return Promise.resolve(response(userA));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const reminting = store.revalidateSession();
+    const ensured = store.ensureAccessToken();
+    revalidate.resolve(response({ accessToken: "tok_b", expiresIn: 500 }));
+    await expect(reminting).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    await expect(ensured).resolves.toBe("tok_b");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"))).toHaveLength(0);
+  });
 });

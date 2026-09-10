@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.0
+
+### Added
+- `revalidateSession({ signal? })` on `ConcreteAuthStore` and optional `revalidatePath` config (default `/auth/revalidate`) for non-rotating authority remint (CEL-1853). Concurrent remints single-flight; joins an in-flight refresh/adoption; preserves the absolute refresh deadline/timer; one `ACCESS_TOKEN_EXPIRED` fallback to ordinary refresh only.
+
 ## 0.15.0
 
 ### Added

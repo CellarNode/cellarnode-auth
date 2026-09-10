@@ -32,6 +32,7 @@ export {
   type SessionClaims,
   type SessionUserType,
   type ResolveSessionOptions,
+  type RevalidateSessionOptions,
   type SessionResolution,
   type SessionState,
   type SessionStateListener,
