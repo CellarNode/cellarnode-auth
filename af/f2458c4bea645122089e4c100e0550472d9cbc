@@ -1,0 +1,18 @@
+__tests__/register-form.test.tsx
+  h_af7161f060dc1e 5,7,93-165
+src/react/register-form.tsx
+  h_af7161f060dc1e 14-19,35,55,69-78
+src/types.ts
+  h_af7161f060dc1e 24-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aff2458c4bea645122089e4c100e0550472d9cbc",
+  "prompts": {},
+  "humans": {
+    "h_af7161f060dc1e": {
+      "author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
