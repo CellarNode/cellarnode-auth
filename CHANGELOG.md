@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0
+
+### Added
+- `SessionFamily` (`"producer" | "elabel"`), `SESSION_FAMILY_HEADER`, `refreshCookieNameFor`, `isSessionFamily`, and `withProductFamily` from `@cellarnode/auth` (CEL-1722). `createAuthStore` accepts `productFamily` and declares it on the refresh request header and the OTP verify body, so a producer tab and an e-label tab on the same origin rotate independent family-scoped refresh cookies (`cn_rt_producer` / `cn_rt_elabel`) and stay signed in concurrently. `getProductFamily()` reports the configured family; family-less stores keep the exact legacy wire shape.
+- `signOutEverywhere()` on the auth API (CEL-1722) — calls `POST /auth/sessions/revoke-all` with the current Bearer token and clears local credentials, revoking every session family including the caller's. On 401 the local state is still cleared; non-401 errors propagate.
+
+### Fixed
+- Pinning test suite for serialized scheduled/forced refresh (CEL-1721): timer+forced overlap sends one request, concurrent callers share the result, a late response cannot resurrect a logged-out session or overwrite a newer user's token. Documents the already-fixed single-flight behavior of `resolveSession` for future regressions.
+
 ## 0.16.0
 
 ### Added
