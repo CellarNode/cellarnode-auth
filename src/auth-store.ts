@@ -1,6 +1,7 @@
 import { copyAuthUser, parseAuthUser } from "./auth-user.js";
 import { extractAccessToken } from "./extract-token.js";
 import { fetchAuthRequest } from "./auth-transport.js";
+import { SESSION_FAMILY_HEADER } from "./session-family.js";
 import type {
   AccessTokenSetListener,
   AuthStoreConfig,
@@ -81,6 +82,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     revalidatePath = "/auth/revalidate",
     refreshBuffer = 60,
     resolutionTimeoutMs = DEFAULT_RESOLUTION_TIMEOUT_MS,
+    productFamily = null,
   } = config;
   const requestTimeoutMs =
     Number.isFinite(resolutionTimeoutMs) && resolutionTimeoutMs > 0
@@ -512,7 +514,16 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         result = await fetchResolutionResponse(refreshPath, {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            // CEL-1722: family declaration routes the server to this family's
+            // scoped refresh cookie (legacy `refresh_token` stays the read
+            // fallback) and opts the request into the bounded lost-response
+            // grace window. Family-less stores send no header — legacy wire.
+            ...(productFamily
+              ? { [SESSION_FAMILY_HEADER]: productFamily }
+              : {}),
+          },
         });
       } catch {
         return markUnavailable(refreshGeneration, accessToken);
@@ -938,6 +949,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         orgId: typeof json.orgId === "string" ? json.orgId : null,
       };
     },
+
+    getProductFamily: () => productFamily,
 
     getUserId: () => identity?.id ?? null,
     getOrgId: () => identity?.orgId ?? null,

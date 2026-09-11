@@ -74,7 +74,8 @@ The dev-bypass internals (`DevSignInBypass`, `DEV_LOGIN_EMAIL_STORAGE_KEY`,
 
 ### Core API
 
-- `createAuthStore({ baseUrl })` — holds the access token in a **module-closure variable, not `localStorage`**; durability across reloads comes from the backend's HttpOnly refresh cookie, which `performRefresh()` sends with `credentials: "include"`. `AuthStoreConfig` is `{ baseUrl, refreshPath?, refreshBuffer?, resolutionTimeoutMs? }` — there is no storage-adapter seam. Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
+- `createAuthStore({ baseUrl })` — holds the access token in a **module-closure variable, not `localStorage`**; durability across reloads comes from the backend's HttpOnly refresh cookie, which `performRefresh()` sends with `credentials: "include"`. `AuthStoreConfig` is `{ baseUrl, refreshPath?, refreshBuffer?, resolutionTimeoutMs?, productFamily? }` — there is no storage-adapter seam. Also exposes `devLogin(email)` (CEL-1364) — see "Dev sign-in bypass".
+- `productFamily: "producer" | "elabel"` on `createAuthStore` (CEL-1722) — declares the store's **session family**: the store stamps `X-CellarNode-Family` on every `/auth/refresh`, exposes `getProductFamily()` (which `verifyOtp` reads to add `productFamily` to the login body), and the backend partitions refresh chains/cookies per family (`cn_rt_producer` / `cn_rt_elabel`). Producer and e-label each create their own store with their own family; importer stays family-less (legacy `refresh_token` cookie, exact legacy wire shape). Helpers `SESSION_FAMILY_HEADER`, `refreshCookieNameFor`, and `withProductFamily(body, family)` are exported for consumers that call `/auth/registration/session` directly.
 - `createAuthClient({ baseUrl, store, onAuthFailure })` — fetch wrapper, auto-attaches Bearer, calls `onAuthFailure` on 401.
 
 Every package-owned request requires HTTPS. HTTP is accepted automatically
@@ -175,9 +176,9 @@ OTP flow against backend V2 public API (port 4000):
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/auth/otp/request` | Send OTP via SendGrid |
-| POST | `/auth/otp/verify` | Exchange OTP for JWE access + refresh tokens |
-| POST | `/auth/refresh` | Rotate access token (replay-detection revokes session) |
-| POST | `/auth/logout` | Revoke session in Redis (`cellarnode:session:*`) |
+| POST | `/auth/otp/verify` | Exchange OTP for JWE access + refresh tokens. Optional `productFamily: "producer" \| "elabel"` body field (CEL-1722) → family-stamped session + family-scoped refresh cookie. |
+| POST | `/auth/refresh` | Rotate access token (replay-detection revokes session). Optional `X-CellarNode-Family` header (CEL-1722): server reads that family's cookie (legacy `refresh_token` stays the read fallback) and grants the bounded same-family lost-response grace window. |
+| POST | `/auth/logout` | Revoke session in Redis (`cellarnode:session:*`). CEL-1722: clears only the current session family's refresh cookie — the other dashboard stays signed in. Sign out everywhere is the backend's `revokeAllUserSessions` (admin path; no public endpoint yet). |
 | GET | `/auth/me` | Current user; backend `authGuard()` accepts EITHER Bearer JWE (OTP path) OR cookie (admin BFF path). Cookie wins. |
 | POST | `/test/login` | LOCAL DEV ONLY (CEL-1364). Body `{ email }` → `{ accessToken, userId, orgId }` + the OTP flow's refresh cookies. 404s uniformly unless the API runs with `ENABLE_TEST_ENDPOINTS=true` outside production. |
 

@@ -4,6 +4,14 @@ export { createAuthApi } from "./auth-api.js";
 export { validateUserType, hasEntitlement } from "./auth-guard.js";
 export { extractAccessToken } from "./extract-token.js";
 export {
+  SESSION_FAMILIES,
+  SESSION_FAMILY_HEADER,
+  LEGACY_REFRESH_COOKIE_NAME,
+  isSessionFamily,
+  refreshCookieNameFor,
+  withProductFamily,
+} from "./session-family.js";
+export {
   captureSessionContinuity,
   canReplaySession,
   resolveSessionForReplay,
