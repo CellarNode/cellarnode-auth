@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.1
+
+### Added
+- `RegisterForm` / `RegisterInput` accept an org-invite `token` prop and forward it in the registration body (CEL-1814), and map the backend's closed/invalid registration errors (`REGISTRATION_CLOSED`, `INVITE_TOKEN_INVALID`, `IMPORTER_INVITE_REQUIRED`) to actionable form feedback.
+
 ## 0.17.0
 
 ### Added
