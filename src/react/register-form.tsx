@@ -11,6 +11,12 @@ export interface RegisterFormProps {
   onRegistered: () => void;
   onNavigateLogin: () => void;
   authApi: AuthApi;
+  /**
+   * CEL-1814: org-invite token from the invite link. Sent with the register
+   * call; while the surface's registration switch is closed (backend default)
+   * a valid token is the only way through.
+   */
+  inviteToken?: string;
 }
 
 function RegisterCard({ children }: { readonly children: ReactNode }) {
@@ -26,6 +32,7 @@ export function RegisterForm({
   onRegistered,
   onNavigateLogin,
   authApi,
+  inviteToken,
 }: RegisterFormProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -45,6 +52,7 @@ export function RegisterForm({
         email,
         phone: phone || undefined,
         userType,
+        inviteToken: inviteToken || undefined,
       });
       setSuccess(true);
       onRegistered();
@@ -57,6 +65,16 @@ export function RegisterForm({
         } else if (err.code === "USER_DELETED") {
           setError(
             "This account has been deactivated. Please contact support.",
+          );
+        } else if (err.code === "REGISTRATION_CLOSED") {
+          // CEL-1814/1815: the surface's self-registration switch is closed —
+          // an org invitation is required.
+          setError(
+            "Registration is invite-only. Please use the sign-up link from your invite email.",
+          );
+        } else if (err.code === "INVITE_TOKEN_INVALID") {
+          setError(
+            "Your invitation is invalid, expired, or was sent to a different email address. Ask your organisation admin to resend it.",
           );
         } else {
           setError(err.message);
