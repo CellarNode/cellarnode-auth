@@ -1,0 +1,18 @@
+CHANGELOG.md
+  h_af7161f060dc1e 3-7
+package-lock.json
+  h_af7161f060dc1e 3,9
+package.json
+  h_af7161f060dc1e 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0db536b80f763e3fda2abfc73ac603109de14352",
+  "prompts": {},
+  "humans": {
+    "h_af7161f060dc1e": {
+      "author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
