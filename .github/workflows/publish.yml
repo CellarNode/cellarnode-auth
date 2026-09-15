@@ -111,9 +111,11 @@ jobs:
       # short-lived publish token itself — requires the npmjs.com Trusted
       # Publisher config to exist first (Organization CellarNode, Repository
       # cellarnode-auth, Workflow publish.yml, no Environment — see CEL-1733).
-      # Provenance is generated automatically here and needs no flag: this
-      # is a public repo publishing a public package, the only combination
-      # npm signs by default.
+      # Provenance is generated automatically here even without a flag —
+      # this is a public repo publishing a public package, the only
+      # combination npm signs by default. `--provenance` is passed
+      # explicitly anyway (CEL-1981) so the intent is visible in the
+      # command itself, not just this comment.
       - name: Publish
         if: steps.version.outputs.changed == 'true' && steps.version-check.outputs.exists == 'false'
-        run: npm publish --access public
+        run: npm publish --provenance --access public
