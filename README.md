@@ -165,4 +165,6 @@ triggers the publish job, gated on the version having actually changed.
 
 ## License
 
-MIT
+UNLICENSED — Copyright (c) CellarNode. All rights reserved. This package is
+published for CellarNode's own applications; no license is granted for
+other use.
