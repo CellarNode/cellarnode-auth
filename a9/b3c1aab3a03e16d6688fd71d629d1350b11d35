@@ -1,0 +1,23 @@
+CHANGELOG.md
+  s_87d834397ad9f2::t_362c62dc136f8c 3-7
+package-lock.json
+  s_87d834397ad9f2::t_a7452266934be2 3,9
+package.json
+  s_87d834397ad9f2::t_57367d00f2963c 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a9b3c1aab3a03e16d6688fd71d629d1350b11d35",
+  "prompts": {},
+  "sessions": {
+    "s_87d834397ad9f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0d7b73f9-bf8d-43e4-8a98-b0751ef06def",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
