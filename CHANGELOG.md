@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.2
+
+### Fixed
+- License metadata corrected to UNLICENSED; public access (CEL-1981).
+
 ## 0.17.1
 
 ### Added
