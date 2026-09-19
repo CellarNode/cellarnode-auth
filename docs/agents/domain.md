@@ -13,45 +13,17 @@ In order:
    map, shared package inventory, ports, agent-team workflow, and cross-cutting bans.
    CellarNode is a **sibling layout, not a monorepo**: each repo has its own PRs, CI, and
    release cadence.
-3. **RepoSkein decisions** — `list_decisions` (see ADRs below).
+3. **ADR records** — read current decisions under `docs/adr/`; historical RepoSkein records are archived under `docs/adr/reposkein-archive/`.
 4. **`CONTEXT.md`** at the repo root, if it exists.
 
 If `CONTEXT.md` doesn't exist, **proceed silently**. Don't flag its absence; don't suggest
 creating it upfront. `/domain-modeling` creates it lazily when terms actually get resolved.
 
-## ADRs are RepoSkein decisions, not `docs/adr/*.md`
+## ADRs in this repository
 
-This workspace records architectural decisions as **graph-anchored RepoSkein ADRs** — JSON records
-under `.reposkein/decisions/`, anchored to the nodes and paths they govern. The JSON is the
-**system of record**.
+Historical RepoSkein ADR records are preserved byte-for-byte in `docs/adr/reposkein-archive/`. New ADRs are ordinary Markdown files under `docs/adr/`; use a descriptive filename such as `docs/adr/0001-short-title.md` and include context, decision, consequences, and alternatives.
 
-- **`list_decisions` before modifying governed code.** This is mandated by every sub-repo's
-  `AGENTS.md`, not optional. Decisions also surface automatically inside `get_context_profile`,
-  `impact`, and `semantic_find` results.
-- **`get_decision <id>`** to read one in full.
-- **`record_decision`** for a new significant choice. Agent-authored records land as `proposed`;
-  a human ratifies with `set_decision_status`.
-- **`reaffirm_decision`** when a decision still holds after the code beneath it moved;
-  **`reanchor_decision`** (0.7.0) to mechanically repair anchors after renames or moves.
-- **`reindex_file`** after editing. If the response carries `decisions_affected`, `get_decision`
-  each one before moving on.
-- **`docs/adr/`** is a **read-only exported view**, produced by `reposkein-mcp adr export` and
-  rendered as Nygard markdown. Never hand-edit it, and never treat it as authoritative — it can
-  be stale. Read it only when the RepoSkein MCP is unavailable.
-
-## Flag ADR conflicts — never silently violate
-
-If your output contradicts an existing decision, surface it explicitly:
-
-> _Contradicts `2026-08-20-session-cookie-is-the-jwe` (accepted), but worth reopening because…_
-
-Then take one of three routes, never a fourth:
-
-- **Conform** — change the approach to match the decision.
-- **Supersede** — `record_decision` a replacement that explicitly supersedes the old one.
-- **Reaffirm** — `reaffirm_decision` when the decision still holds and only its anchors drifted.
-
-Silently violating a recorded decision is the anti-pattern this system exists to prevent.
+If a proposed change conflicts with an existing ADR, surface the conflict in the review and update or supersede the Markdown ADR in the same change.
 
 ## Prefer the graph over grep
 
