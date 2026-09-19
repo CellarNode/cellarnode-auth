@@ -1,0 +1,25 @@
+docs/adr/reposkein-archive/README.md
+  s_39064ce09a2df9::t_b1733844d0ce1a 1-6
+docs/agents/domain.md
+  s_39064ce09a2df9::t_75ecbe13d23116 16,22,24,26
+AGENTS.md
+  s_39064ce09a2df9::t_2668f2c15ab534 201
+docs/adr/reposkein-archive/2026-09-07-centralize-stale-401-replay-authority-resolution.json
+  s_39064ce09a2df9::t_5de2d5ec7f7c20 1-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a0cb5f89cfd85e76bcd17c4216acb5071ab96a13",
+  "prompts": {},
+  "sessions": {
+    "s_39064ce09a2df9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bab4-47e3-7d92-8bce-a7c914ded01a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
