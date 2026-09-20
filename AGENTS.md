@@ -198,5 +198,5 @@ carry `needs-info`, `ready-for-agent`, `ready-for-human`. See `docs/agents/triag
 
 ### Domain docs
 
-Single-context. ADRs are graph-anchored RepoSkein decisions, not `docs/adr/*.md`.
+Single-context. ADRs are ordinary Markdown under `docs/adr/`; historical RepoSkein records are archived under `docs/adr/reposkein-archive/`.
 See `docs/agents/domain.md`.
