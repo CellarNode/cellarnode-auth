@@ -1,0 +1,25 @@
+__tests__/otp-confirmation-step.test.tsx
+  s_26c0d16c645104::t_65583a7c468953 577-680
+src/react/otp-confirmation-step.tsx
+  s_26c0d16c645104::t_145b0039caf80f 207-212,216-222
+  s_26c0d16c645104::t_43cb11d17f1e30 251,263
+  s_26c0d16c645104::t_83b0151506d654 280-289
+  s_26c0d16c645104::t_67ca6e986949f2 291-297
+  s_26c0d16c645104::t_d1508b544bbfc5 370-377,382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "43d815f8965c1f24fac0699f5d5c1ed82167ebc1",
+  "prompts": {},
+  "sessions": {
+    "s_26c0d16c645104": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fde0ddda-276c-4891-a752-95b1b97a31d2",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
