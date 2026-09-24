@@ -77,12 +77,15 @@ const OTP_STYLES = `
   }
 `;
 
-export function InputOTP({
-  containerClassName,
-  "data-invalid": dataInvalid,
-  "data-shaking": dataShaking,
-  ...props
-}: InputOTPProps) {
+export const InputOTP = React.forwardRef<HTMLInputElement, InputOTPProps>(function InputOTP(
+  {
+    containerClassName,
+    "data-invalid": dataInvalid,
+    "data-shaking": dataShaking,
+    ...props
+  },
+  ref,
+) {
   const separatorCount = countOtpSeparators(props.children);
   const containerStyle = {
     containerType: "inline-size",
@@ -104,6 +107,7 @@ export function InputOTP({
         style={containerStyle}
       >
         <OTPInput
+          ref={ref}
           data-slot="input-otp"
           data-invalid={dataInvalid ? true : undefined}
           data-shaking={dataShaking ? true : undefined}
@@ -116,7 +120,7 @@ export function InputOTP({
       </div>
     </>
   );
-}
+});
 
 export function InputOTPGroup({
   className,

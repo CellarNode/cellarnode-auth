@@ -93,10 +93,10 @@ export function RegisterForm({
     return (
       <RegisterCard>
         <div className="p-6 text-center">
-          <h2 className="text-2xl font-semibold">Check your email</h2>
+          <h2 className="text-2xl font-semibold">Account created</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            We sent a verification link to {email}. After verifying, you can
-            log in.
+            Your account has been created. Log in with a one-time code sent
+            to {email} to get started.
           </p>
         </div>
         <div className="px-6 pb-6">

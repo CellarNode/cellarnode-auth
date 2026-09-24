@@ -27,3 +27,10 @@ export {
   InputOTPSeparator,
   type InputOTPProps,
 } from "./input-otp-slots.js";
+export {
+  OtpConfirmationStep,
+  type OtpConfirmationStepProps,
+  type OtpConfirmationLabels,
+  type OtpConfirmationError,
+  type OtpConfirmationTimings,
+} from "./otp-confirmation-step.js";
