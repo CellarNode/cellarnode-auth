@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAuthClient } from "../src/auth-client.js";
 import { createAuthStore } from "../src/auth-store.js";
-import type { AuthUser } from "../src/types.js";
+import type { AuthUser, SessionState } from "../src/types.js";
 
 const userA: AuthUser = {
   id: "user_1",
@@ -272,7 +272,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(identityCalls).toBe(2);
   });
 
-  it("publishes the adopted token while refreshed identity is resolving", async () => {
+  it("publishes revalidating (not resolving) with the adopted token while a background refresh reconfirms an existing session (CEL-2086)", async () => {
     const refreshedIdentity = deferred<Response>();
     global.fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.includes("/auth/refresh")) {
@@ -288,18 +288,25 @@ describe("atomic session resolution (CEL-1782)", () => {
     await store.resolveSession({ refresh: false });
 
     const resolvingTokens: Array<string | null> = [];
+    const revalidatingTokens: Array<string | null> = [];
     store.onSessionStateChange((state) => {
       if (state.status === "resolving") resolvingTokens.push(state.token);
+      if (state.status === "revalidating") revalidatingTokens.push(state.token);
     });
 
     const refreshing = store.resolveSession({ refresh: true });
     await flush();
 
-    expect(resolvingTokens).toEqual(["tok_a", "tok_b"]);
+    // A confirmed baseline (tok_a/userA) existed before this refresh started,
+    // so neither publish is a bare "resolving" — both carry the retained
+    // identity as "revalidating", across the pre- and post-rotation token.
+    expect(resolvingTokens).toEqual([]);
+    expect(revalidatingTokens).toEqual(["tok_a", "tok_b"]);
     expect(store.getAccessToken()).toBe("tok_b");
     expect(store.getSessionState()).toEqual({
-      status: "resolving",
+      status: "revalidating",
       token: "tok_b",
+      user: userA,
     });
 
     refreshedIdentity.resolve(response(userA));
@@ -309,7 +316,132 @@ describe("atomic session resolution (CEL-1782)", () => {
     });
   });
 
-  it("installs refresh flight before publishing resolving to reentrant observers", async () => {
+  it("publishes bare resolving (no retained user) for a background refresh with no prior confirmed session (CEL-2086)", async () => {
+    global.fetch = vi.fn((url: string) =>
+      url.includes("/auth/refresh")
+        ? Promise.resolve(response({ accessToken: "tok_a", expiresIn: 900 }))
+        : Promise.resolve(response(userA)),
+    ) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+
+    const statuses: SessionState["status"][] = [];
+    store.onSessionStateChange((state) => statuses.push(state.status));
+
+    // Cold start: shouldRefresh defaults true with no access token, so this
+    // goes through runRefresh with no baseline — there is no confirmed
+    // identity to preserve, so every publish must stay "resolving". The
+    // leading "unauthorized" is the synchronous snapshot onSessionStateChange
+    // delivers immediately on subscription, before resolveSession() runs.
+    await store.resolveSession();
+
+    expect(statuses).toEqual(["unauthorized", "resolving", "resolving", "ready"]);
+  });
+
+  it("explicit setAccessToken always publishes bare resolving, even over an existing ready baseline (CEL-2086)", async () => {
+    global.fetch = vi.fn((_url: string, init?: RequestInit) => {
+      const token = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(
+        response(token === "Bearer tok_b" ? { ...userA, id: "user_2", orgId: "org_b" } : userA),
+      );
+    }) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const statuses: SessionState["status"][] = [];
+    store.onSessionStateChange((state) => statuses.push(state.status));
+
+    // A NEW credential (e.g. a different account signing in over an existing
+    // session) has no confirmed continuity with the outgoing identity — it
+    // must never borrow "revalidating" continuity from the account it is
+    // replacing.
+    store.setAccessToken("tok_b", 900);
+    await flush();
+
+    expect(statuses).toEqual(["ready", "resolving", "ready"]);
+    expect(store.getSessionState()).toMatchObject({
+      status: "ready",
+      token: "tok_b",
+      user: { id: "user_2" },
+    });
+  });
+
+  it("revalidateSession publishes revalidating with the retained identity, including simultaneous callers (CEL-2086, CEL-1853)", async () => {
+    const revalidate = deferred<Response>();
+    global.fetch = vi.fn((url: string) =>
+      url.includes("/auth/revalidate") ? revalidate.promise : Promise.resolve(response(userA)),
+    ) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const states: SessionState[] = [];
+    store.onSessionStateChange((state) => states.push(state));
+    states.length = 0;
+
+    const a = store.revalidateSession();
+    const b = store.revalidateSession();
+
+    // Both simultaneous callers observe the SAME single revalidating publish
+    // — no duplicate POST, no flash back to bare resolving in between.
+    expect(states).toEqual([{ status: "revalidating", token: "tok_a", user: userA }]);
+
+    revalidate.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+    await expect(a).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    await expect(b).resolves.toMatchObject({ status: "ready", token: "tok_b" });
+    expect(
+      (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) =>
+        String(url).includes("/auth/revalidate"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("a slow revalidateSession stays revalidating (not resolving) until it times out to unavailable (CEL-2086)", async () => {
+    vi.useFakeTimers();
+    global.fetch = vi.fn((url: string) => {
+      if (url.includes("/auth/revalidate")) return new Promise<Response>(() => {});
+      return Promise.resolve(response(userA));
+    }) as typeof fetch;
+    const store = createAuthStore({
+      baseUrl: "http://localhost:4000",
+      resolutionTimeoutMs: 50,
+    });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const statuses: SessionState["status"][] = [];
+    store.onSessionStateChange((state) => statuses.push(state.status));
+    statuses.length = 0;
+
+    const revalidating = store.revalidateSession();
+    expect(statuses).toEqual(["revalidating"]);
+
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(revalidating).resolves.toEqual({ status: "unavailable", token: "tok_a" });
+    expect(statuses).toEqual(["revalidating", "unavailable"]);
+    // The workspace never lost its retained identity mid-flight.
+    expect(statuses).not.toContain("resolving");
+  });
+
+  it("a revoked revalidateSession goes revalidating then unauthorized, never a bare resolving flash (CEL-2086)", async () => {
+    global.fetch = vi.fn((url: string) =>
+      url.includes("/auth/revalidate")
+        ? Promise.resolve(response({ code: "UNAUTHORIZED" }, 401))
+        : Promise.resolve(response(userA)),
+    ) as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const statuses: SessionState["status"][] = [];
+    store.onSessionStateChange((state) => statuses.push(state.status));
+    statuses.length = 0;
+
+    await expect(store.revalidateSession()).resolves.toEqual({ status: "unauthorized" });
+    expect(statuses).toEqual(["revalidating", "unauthorized"]);
+  });
+
+  it("installs refresh flight before publishing revalidating to reentrant observers", async () => {
     const fetchMock = vi.fn((url: string) =>
       Promise.resolve(
         url.includes("/auth/refresh")
@@ -324,7 +456,7 @@ describe("atomic session resolution (CEL-1782)", () => {
 
     let nested: Promise<unknown> | null = null;
     const unsubscribe = store.onSessionStateChange((state) => {
-      if (state.status === "resolving" && state.token === "tok_a" && !nested) {
+      if (state.status === "revalidating" && state.token === "tok_a" && !nested) {
         nested = store.resolveSession({ refresh: true });
       }
     });
@@ -551,7 +683,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(store.getUserId()).toBe(userA.id);
   });
 
-  it("generation-checks resolving observers before refresh mutation", async () => {
+  it("generation-checks revalidating observers before refresh mutation", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(userA));
     global.fetch = fetchMock;
     const store = createAuthStore({ baseUrl: "http://localhost:4000" });
@@ -559,7 +691,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     await flush();
 
     const unsubscribe = store.onSessionStateChange((state) => {
-      if (state.status === "resolving" && state.token === "tok_a") {
+      if (state.status === "revalidating" && state.token === "tok_a") {
         unsubscribe();
         store.clearAccessToken();
       }

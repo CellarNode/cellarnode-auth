@@ -135,6 +135,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
             const currentState = store.getSessionState?.();
             if (
               (currentState?.status === "resolving" ||
+                currentState?.status === "revalidating" ||
                 currentState?.status === "unavailable") &&
               currentState.token === resolution.token
             ) {

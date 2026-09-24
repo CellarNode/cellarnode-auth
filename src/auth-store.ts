@@ -64,7 +64,7 @@ interface ExplicitAdoptionFlight {
 }
 
 function copySessionState(state: SessionState): SessionState {
-  return state.status === "ready"
+  return state.status === "ready" || state.status === "revalidating"
     ? { ...state, user: copyAuthUser(state.user) }
     : { ...state };
 }
@@ -190,12 +190,38 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
   }
 
-  /** Notify consumers before authority or credentials can change. */
+  /**
+   * Publish `revalidating` (carrying the last confirmed token/user) when a
+   * confirmed baseline exists and the caller has not lost its token entirely;
+   * otherwise publish plain `resolving` (CEL-2086). `identity`/getters are
+   * NOT touched here — only the published SessionState distinguishes the two,
+   * so `getUserId()`/`getOrgId()`/`ensureAccessToken()` keep their existing
+   * "unknown until this operation settles" contract either way.
+   */
+  function publishResolvingOrRevalidating(
+    token: string | null,
+    baseline: ReadyBaseline | null,
+  ): void {
+    if (baseline && token !== null) {
+      publishSessionState({ status: "revalidating", token, user: baseline.user });
+    } else {
+      publishSessionState({ status: "resolving", token });
+    }
+  }
+
+  /**
+   * Notify consumers before authority or credentials can change. `baseline`
+   * is the confirmed identity this operation may end up reconfirming — pass
+   * it for background refresh/revalidation so consumers see `revalidating`
+   * instead of `resolving` (CEL-2086). Omit it (or pass null) for an explicit
+   * new-credential adoption, which never has continuity with a prior session.
+   */
   function beginResolving(
     generation: number,
     token: string | null,
+    baseline: ReadyBaseline | null = null,
   ): boolean {
-    publishSessionState({ status: "resolving", token });
+    publishResolvingOrRevalidating(token, baseline);
     if (generation !== tokenGeneration) return false;
     identity = null;
     return true;
@@ -431,7 +457,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     const flight: IdentityFlight = { generation, promise };
     identityFlight = flight;
 
-    if (notifyResolving && !beginResolving(generation, token)) {
+    if (notifyResolving && !beginResolving(generation, token, baseline)) {
       if (identityFlight === flight) identityFlight = null;
       settle({ status: "superseded" });
       return promise;
@@ -496,7 +522,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     const flight: RefreshFlight = { generation, promise };
     refreshFlight = flight;
 
-    if (!beginResolving(generation, accessToken)) {
+    if (!beginResolving(generation, accessToken, baseline)) {
       if (refreshFlight === flight) refreshFlight = null;
       settle({ status: "superseded" });
       return promise;
@@ -562,7 +588,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       pendingRefreshBaseline = baseline
         ? { token: baseline.token, user: copyAuthUser(baseline.user) }
         : null;
-      publishSessionState({ status: "resolving", token: nextToken });
+      publishResolvingOrRevalidating(nextToken, baseline);
       if (
         nextGeneration !== tokenGeneration ||
         accessToken !== nextToken
@@ -619,7 +645,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     const flight: AuthorityFlight = { generation, promise };
     authorityFlight = flight;
 
-    if (!beginResolving(generation, bearerToken)) {
+    // Captured before beginResolving publishes, so a background remint of an
+    // already-confirmed session shows `revalidating` instead of `resolving`
+    // (CEL-2086) — this op is a re-check of that identity, never a new one.
+    const baseline = currentBaseline();
+
+    if (!beginResolving(generation, bearerToken, baseline)) {
       if (authorityFlight === flight) authorityFlight = null;
       settle({ status: "superseded" });
       return promise;
@@ -629,7 +660,6 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     tokenGeneration += 1;
     const opGeneration = tokenGeneration;
     flight.generation = opGeneration;
-    const baseline = currentBaseline();
 
     void (async (): Promise<SessionResolution> => {
       let result: { response: Response; raw: unknown };
@@ -694,7 +724,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       pendingRefreshBaseline = baseline
         ? { token: baseline.token, user: copyAuthUser(baseline.user) }
         : null;
-      publishSessionState({ status: "resolving", token: nextToken });
+      publishResolvingOrRevalidating(nextToken, baseline);
       if (nextGeneration !== tokenGeneration || accessToken !== nextToken) {
         return { status: "superseded" };
       }

@@ -125,9 +125,36 @@ export type SessionResolution =
   | { status: "unauthorized" }
   | { status: "superseded" };
 
+/**
+ * Guarded session-resolution state (CEL-2086).
+ *
+ * `resolving` and `revalidating` are both "not settled yet" but mean
+ * different things to a consumer deciding what to render:
+ *
+ * - `resolving` — no confirmed identity is available for the duration of
+ *   this operation (cold start, a failed/expired session recovering, or an
+ *   explicit new credential being adopted via `setAccessToken`/login). `user`
+ *   is unknown; consumers should treat protected UI as unauthenticated.
+ * - `revalidating` — a confirmed identity was already `ready` immediately
+ *   before this operation began (scheduled token renewal, a manual
+ *   `resolveSession({ refresh: true })`, or a non-rotating
+ *   `revalidateSession()` remint) and is carried on the state so consumers
+ *   can keep the existing workspace mounted instead of flashing a "verifying
+ *   session" screen. `user` is the last CONFIRMED identity, held steady for
+ *   continuity. `token` tracks the operation's current candidate credential
+ *   (the outgoing token before a rotation lands, the incoming one after) —
+ *   it is NOT independently re-verified against `user` yet, so protected
+ *   writes should still wait for the next `ready` (or treat
+ *   `unavailable`/`unauthorized`) before trusting it.
+ *
+ * Explicit credential adoption (`setAccessToken`, OTP/dev login) always
+ * publishes `resolving`, even when a different account was previously
+ * `ready` — a new credential has no confirmed continuity with the old one.
+ */
 export type SessionState =
   | { status: "ready"; token: string; user: AuthUser }
   | { status: "resolving"; token: string | null }
+  | { status: "revalidating"; token: string; user: AuthUser }
   | { status: "unavailable"; token: string | null }
   | { status: "unauthorized" };
 

@@ -89,6 +89,7 @@ export async function resolveSessionForReplay(
   if (
     currentState?.status === "unauthorized" ||
     ((currentState?.status === "resolving" ||
+      currentState?.status === "revalidating" ||
       currentState?.status === "unavailable") &&
       currentState.token !== before.token) ||
     (currentState?.status === "ready" &&
@@ -118,7 +119,8 @@ export async function resolveSessionForReplay(
     return store.getAccessToken() === resolution.token &&
       (unavailableState === undefined ||
         ((unavailableState.status === "unavailable" ||
-          unavailableState.status === "resolving") &&
+          unavailableState.status === "resolving" ||
+          unavailableState.status === "revalidating") &&
           unavailableState.token === resolution.token))
       ? resolution
       : { status: "superseded" };
@@ -128,6 +130,7 @@ export async function resolveSessionForReplay(
   const afterState = store.getSessionState?.();
   if (
     (afterState?.status === "resolving" ||
+      afterState?.status === "revalidating" ||
       afterState?.status === "unavailable") &&
     afterState.token === resolution.token
   ) {
