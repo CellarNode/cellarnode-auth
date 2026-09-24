@@ -79,15 +79,40 @@ describe("RegisterForm theme surfaces", () => {
     });
     fireEvent.click(getByRole("button", { name: "Create account" }));
     const successHeading = await findByRole("heading", {
-      name: "Check your email",
+      name: "Account created",
     });
 
     // Then: the rendered success card owns its matching semantic color pair.
     const successCard = container.firstElementChild;
-    expect(successHeading.textContent).toBe("Check your email");
+    expect(successHeading.textContent).toBe("Account created");
     expect(Array.from(successCard?.classList ?? [])).toEqual(
       expect.arrayContaining(["bg-card", "text-card-foreground"]),
     );
+  });
+});
+
+describe("RegisterForm success copy (CEL-1810)", () => {
+  it("does not claim a verification link was sent — no link is ever sent by this flow", async () => {
+    const { findByRole, getByLabelText, getByRole, queryByText } = render(
+      <RegisterForm
+        userType="producer"
+        authApi={authApi}
+        onRegistered={noop}
+        onNavigateLogin={noop}
+      />,
+    );
+
+    fireEvent.change(getByLabelText("Full name"), {
+      target: { value: "Producer" },
+    });
+    fireEvent.change(getByLabelText("Email"), {
+      target: { value: "producer@example.com" },
+    });
+    fireEvent.click(getByRole("button", { name: "Create account" }));
+    await findByRole("heading", { name: "Account created" });
+
+    expect(queryByText(/verification link/i)).toBeNull();
+    expect(queryByText(/one-time code/i)).toBeTruthy();
   });
 });
 
@@ -109,7 +134,7 @@ describe("RegisterForm invite token (CEL-1814)", () => {
     fireEvent.change(getByLabelText("Full name"), { target: { value: "Invited" } });
     fireEvent.change(getByLabelText("Email"), { target: { value: "invited@winery.test" } });
     fireEvent.click(getByRole("button", { name: "Create account" }));
-    await findByRole("heading", { name: "Check your email" });
+    await findByRole("heading", { name: "Account created" });
 
     expect(register).toHaveBeenCalledWith(
       expect.objectContaining({
