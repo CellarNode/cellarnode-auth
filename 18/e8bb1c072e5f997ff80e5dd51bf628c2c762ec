@@ -1,0 +1,32 @@
+CHANGELOG.md
+  s_2866f265fb1f85::t_3cf49fed312689 8-10
+__tests__/session-resolution.test.ts
+  s_2866f265fb1f85::t_c73ac77caa8331 579-644
+src/auth-store.ts
+  s_2866f265fb1f85::t_80c8f2307e608b 423,432,438-495
+  s_5f6caa5bc82de0::t_5f00f4557c2e8a 496-497
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "18e8bb1c072e5f997ff80e5dd51bf628c2c762ec",
+  "prompts": {},
+  "sessions": {
+    "s_2866f265fb1f85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eb9ecf37-fcea-4859-9dc8-e562ac8fbaec",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    },
+    "s_5f6caa5bc82de0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6d020562-ff09-47ff-800a-c5b0dbade3ef",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
