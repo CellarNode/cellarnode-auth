@@ -145,7 +145,7 @@ Add this to your CSS file so Tailwind picks up utility classes from the package:
 ## Exports
 
 - `@cellarnode/auth` — Core: `createAuthStore`, `createAuthClient`, `createAuthApi`, `captureSessionContinuity`, `resolveSessionForReplay`, `canReplaySession`, `validateUserType`, `hasEntitlement`, `extractAccessToken`, `AuthError`, session-resolution types, and `DevLoginResult`
-- `@cellarnode/auth/react` — React: `LoginForm`, `RegisterForm`, `UnauthorizedPage`, `SquircleShift`, `InputOTP` (+ `Group` / `Slot` / `Separator`)
+- `@cellarnode/auth/react` — React: `LoginForm`, `RegisterForm`, `UnauthorizedPage`, `SquircleShift`, `OtpConfirmationStep`, `InputOTP` (+ `Group` / `Slot` / `Separator`)
 
 `DevSignInBypass`, `DEV_LOGIN_EMAIL_STORAGE_KEY`, `readDevLoginEmail` and
 `rememberDevLoginEmail` are **deliberately not exported**. They are internals of
