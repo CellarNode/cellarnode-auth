@@ -1,0 +1,40 @@
+CHANGELOG.md
+  s_2866f265fb1f85::t_a43f789e2f9f04 6,9-10
+src/types.ts
+  s_2866f265fb1f85::t_6fc709b82f8062 143-152,161
+src/auth-client.ts
+  s_2866f265fb1f85::t_79544cec8fa12d 137,139-141
+src/auth-store.ts
+  s_2866f265fb1f85::t_d2b628c895d822 206-213
+  s_2866f265fb1f85::t_3f876d7138b4d4 429-438,447,455-468,470,490-496,502-504
+  s_2866f265fb1f85::t_1f11fbabe335be 507-509
+src/session-continuity.ts
+  s_2866f265fb1f85::t_4b121824f58ff8 123-126,134-137
+  s_2866f265fb1f85::t_254f440f1f734f 94-95
+__tests__/session-resolution.test.ts
+  s_2866f265fb1f85::t_80ac85d5d57632 624-625,627
+  s_2866f265fb1f85::t_259716944e790f 813
+  s_2866f265fb1f85::t_0d1b9e254d78cc 390
+  s_2866f265fb1f85::t_f3a5de993401a7 462
+  s_2866f265fb1f85::t_c8734489f24582 275,291,294,301-305,307,311
+  s_2866f265fb1f85::t_470c8ac65c8315 582-623,626,628-631
+__tests__/auth-client.test.ts
+  s_2866f265fb1f85::t_69ae13234439f3 313
+  s_2866f265fb1f85::t_f9f91146815e48 337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "16c763986b6eba63ca1dfd70391d6a361f765ab7",
+  "prompts": {},
+  "sessions": {
+    "s_2866f265fb1f85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eb9ecf37-fcea-4859-9dc8-e562ac8fbaec",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
