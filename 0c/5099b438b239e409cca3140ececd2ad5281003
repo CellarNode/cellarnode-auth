@@ -1,0 +1,28 @@
+__tests__/otp-confirmation-step.test.tsx
+  s_fb5024849035fc::t_d4ed9d2f2e0cb5 24,32
+  s_fb5024849035fc::t_fb5136621f6cd2 1-23,25-31,33-182,185,188-190,192-222
+  s_fb5024849035fc::t_2fb809624dd0c4 183-184
+  s_fb5024849035fc::t_9c0bc0ea4e358a 186-187,191
+src/react/otp-confirmation-step.tsx
+  s_fb5024849035fc::t_041f9144f036f7 1-260
+CHANGELOG.md
+  s_fb5024849035fc::t_14df472cf6528b 3-5,7-9,12-13
+src/react/index.ts
+  s_fb5024849035fc::t_a4cdcf88a8b772 30-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0c5099b438b239e409cca3140ececd2ad5281003",
+  "prompts": {},
+  "sessions": {
+    "s_fb5024849035fc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d5d298f3-10d9-4cc4-bc01-644ac129702e",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}

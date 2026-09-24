@@ -1,0 +1,37 @@
+src/react/input-otp-slots.tsx
+  s_26c0d16c645104::t_aa7636cfad7ed4 80-88,110,123
+__tests__/otp-confirmation-step.paste.test.tsx
+  s_26c0d16c645104::t_cbaf296172687a 1-38
+CHANGELOG.md
+  s_26c0d16c645104::t_636932097a4163 7-10
+__tests__/otp-confirmation-step.test.tsx
+  s_26c0d16c645104::t_d6ad74175d6060 486-508,513-517,520,524-527,530
+  s_26c0d16c645104::t_49d2e9ee9194ce 4
+  s_26c0d16c645104::t_7e14c1eaccb445 19-30,41,51,53
+  s_26c0d16c645104::t_6bd3d860c859f7 180-186,193-195
+  s_26c0d16c645104::t_22a670d277d92a 3
+  s_26c0d16c645104::t_1a7d0bc5a6a627 228-360,362-371,376-485,509-512,518-519,521-523,528-529,531-576
+  s_26c0d16c645104::t_69834013bfaf90 361,372-375
+src/react/otp-confirmation-step.tsx
+  s_26c0d16c645104::t_861df5babf0c06 408
+  s_26c0d16c645104::t_97ed81e840bf25 354
+  s_26c0d16c645104::t_e6d69f0dfbe161 3-4,17-24,35-42,44-47,52-53,56-57,60-61,65-69,91-93,96-104,160-177,183,191-194,196-203,206-209,220-234,237,239,244-256,258-259,261-266,268,271,278-279,282,286,288-290,292-300,302,306,311,314,318-321,324,337-343,348,350-353,355-407,409-411
+README.md
+  s_26c0d16c645104::t_aa6482a58949ad 148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2cd875854615fa86b20052b8bf4ad14764b6867d",
+  "prompts": {},
+  "sessions": {
+    "s_26c0d16c645104": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fde0ddda-276c-4891-a752-95b1b97a31d2",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
