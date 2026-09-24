@@ -204,9 +204,22 @@ export function OtpConfirmationStep({
   const [now, setNow] = useState(() => Date.now());
   const [resending, setResending] = useState(false);
   const [resendAnnouncement, setResendAnnouncement] = useState<string | null>(null);
+  // Whether a code has EVER actually been sent successfully — distinct from
+  // `status !== "idle"`, which also flips true while the request is still in
+  // flight (or after it fails). Drives description copy so a failed
+  // mount-triggered request never claims "We sent a code…" (CEL-2087 review
+  // round 2, P3).
+  const [codeEverSent, setCodeEverSent] = useState(() => Boolean(initialTimings));
 
   const errorId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  // Identifies the LATEST resend call so a stale resend's `finally` (e.g. one
+  // still in flight when `email` changes and a fresh resend is fired for the
+  // new address) never clears `resending` out from under the newer call, while
+  // a stale resend with no newer resend behind it still clears it correctly
+  // instead of leaving the resend button disabled forever (CEL-2087 review
+  // round 2, P3).
+  const resendCallIdRef = useRef(0);
 
   // "Latest ref" pattern: the mount effect below reads through this ref
   // rather than depending on `onRequestCode` directly, so a parent re-render
@@ -235,6 +248,7 @@ export function OtpConfirmationStep({
   const requestCode = useCallback(
     async (isResend: boolean) => {
       const requestEmail = email;
+      const callId = isResend ? ++resendCallIdRef.current : resendCallIdRef.current;
       setError(null);
       setResendAnnouncement(null);
       if (isResend) setResending(true);
@@ -246,6 +260,7 @@ export function OtpConfirmationStep({
         setResendAvailableAt(resolveTimestamp(timings.resendAfterSeconds, timings.resendAvailableAt, receivedAt));
         setExpiresAt(resolveTimestamp(timings.expiresInSeconds, timings.expiresAt, receivedAt));
         setNow(receivedAt);
+        setCodeEverSent(true);
         // Never clobber an in-flight verify: a resend completing WHILE the
         // user is being verified must not flip status back to "sent"
         // mid-verify and re-enable the input (CEL-2087 P3 review item 11).
@@ -262,10 +277,24 @@ export function OtpConfirmationStep({
         // must not leave resend permanently disabled (CEL-2087 P1 review
         // item 1): make it available now, but don't shorten an ALREADY
         // active cooldown from a prior successful send.
-        setResendAvailableAt((prev) => prev ?? Date.now());
-        setNow(Date.now());
+        //
+        // Single captured timestamp (CEL-2087 review round 2, P1): the
+        // updater passed to setResendAvailableAt runs at React's render
+        // time, not at this call site, so a second `Date.now()` read for
+        // `now` could land up to ~1s later than the one inside the updater
+        // — leaving `now < resendAvailableAt` and resend disabled for that
+        // gap. Both must derive from the SAME instant.
+        const failedAt = Date.now();
+        setResendAvailableAt((prev) => prev ?? failedAt);
+        setNow(failedAt);
       } finally {
-        if (requestEmail === emailRef.current && isResend) setResending(false);
+        // Deliberately NOT gated on `requestEmail === emailRef.current`: a
+        // resend whose email changed mid-flight, with no newer resend
+        // fired since, must still clear `resending` — otherwise the resend
+        // button stays disabled forever (CEL-2087 review round 2, P3). The
+        // `callId` check is what protects a genuinely newer in-flight
+        // resend (for the new email) from being clobbered by this stale one.
+        if (isResend && callId === resendCallIdRef.current) setResending(false);
       }
     },
     [email, mapError],
@@ -338,14 +367,19 @@ export function OtpConfirmationStep({
   const isIdle = status === "idle";
   const isExpired = expiresAt !== null && now >= expiresAt;
 
-  const defaultDescription = isIdle
-    ? `We'll send a ${codeLength}-digit code to ${email}.`
-    : `We sent a ${codeLength}-digit code to ${email}.`;
+  // Driven by `codeEverSent`, not `isIdle`: `isIdle` only distinguishes the
+  // manual not-yet-requested screen from everything else, but status flips
+  // away from "idle" as soon as a request STARTS — including one that then
+  // FAILS. Description copy must track whether a code was actually sent,
+  // not merely attempted (CEL-2087 review round 2, P3).
+  const defaultDescription = codeEverSent
+    ? `We sent a ${codeLength}-digit code to ${email}.`
+    : `We'll send a ${codeLength}-digit code to ${email}.`;
 
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        {isIdle ? (labels?.descriptionIdle ?? labels?.description ?? defaultDescription) : (labels?.description ?? defaultDescription)}
+        {codeEverSent ? (labels?.description ?? defaultDescription) : (labels?.descriptionIdle ?? labels?.description ?? defaultDescription)}
       </p>
       {isIdle ? (
         <button

@@ -574,3 +574,107 @@ describe("OtpConfirmationStep stale response guard (CEL-2087 P3 review item 12)"
     expect((getByRole("button") as HTMLButtonElement).textContent).toBe(resendButtonBefore);
   });
 });
+
+describe("OtpConfirmationStep focus restore, genuinely mutation-proofed (CEL-2087 review round 2, P3)", () => {
+  it("fails if the explicit focus() call after a failed verify is removed", async () => {
+    const onRequestCode = vi.fn(async () => ({
+      expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      resendAvailableAt: new Date(Date.now() + 60_000).toISOString(),
+    }));
+    let rejectVerify: (() => void) | undefined;
+    const onVerifyCode = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectVerify = () => reject({ code: "OTP_INVALID", remainingAttempts: 1 });
+        }),
+    );
+    const { getByTestId } = render(
+      <OtpConfirmationStep email="jane@example.com" onRequestCode={onRequestCode} onVerifyCode={onVerifyCode} />,
+    );
+    await waitFor(() => expect(onRequestCode).toHaveBeenCalledTimes(1));
+
+    const input = getByTestId("otp-hidden-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "123456" } });
+    await waitFor(() => expect(onVerifyCode).toHaveBeenCalled());
+
+    // The input is `autoFocus`, so it may already be focused from mount —
+    // that alone would make a bare `document.activeElement === input`
+    // assertion pass even with the explicit focus() call deleted (a false
+    // negative). Deliberately blur it first so the later assertion can only
+    // pass if the component's own code re-focuses it.
+    input.blur();
+    expect(document.activeElement).not.toBe(input);
+
+    rejectVerify?.();
+    await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+});
+
+describe("OtpConfirmationStep description copy after a failed request (CEL-2087 review round 2, P3)", () => {
+  it("does not claim a code was sent when the mount-triggered request fails", async () => {
+    const onRequestCode = vi.fn(async () => {
+      throw { code: "OTP_RATE_LIMIT" };
+    });
+    const { getByText, queryByText } = render(
+      <OtpConfirmationStep email="jane@example.com" onRequestCode={onRequestCode} onVerifyCode={vi.fn(async () => {})} />,
+    );
+    await waitFor(() => expect(onRequestCode).toHaveBeenCalledTimes(1));
+
+    expect(getByText("We'll send a 6-digit code to jane@example.com.")).toBeTruthy();
+    expect(queryByText("We sent a 6-digit code to jane@example.com.")).toBeNull();
+  });
+
+  it("switches to the sent copy once a request actually succeeds", async () => {
+    const onRequestCode = vi.fn(async () => ({
+      expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      resendAvailableAt: new Date(Date.now() + 60_000).toISOString(),
+    }));
+    const { getByText } = render(
+      <OtpConfirmationStep email="jane@example.com" onRequestCode={onRequestCode} onVerifyCode={vi.fn(async () => {})} />,
+    );
+    await waitFor(() => expect(onRequestCode).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getByText("We sent a 6-digit code to jane@example.com.")).toBeTruthy());
+  });
+});
+
+describe("OtpConfirmationStep resending state after an email change (CEL-2087 review round 2, P3)", () => {
+  it("clears the resending flag for a stale resend after the email changes, instead of leaving Resend disabled forever", async () => {
+    let rejectResend: (() => void) | undefined;
+    const onRequestCode = vi.fn((isResend: boolean) => {
+      if (isResend) {
+        return new Promise<{ expiresAt: string; resendAvailableAt: string }>((_resolve, reject) => {
+          rejectResend = () => reject({ code: "UNKNOWN" });
+        });
+      }
+      return Promise.resolve({
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        resendAvailableAt: new Date(Date.now() - 1_000).toISOString(), // available immediately
+      });
+    });
+
+    const { getByRole, rerender } = render(
+      <OtpConfirmationStep email="jane@example.com" onRequestCode={onRequestCode} onVerifyCode={vi.fn(async () => {})} />,
+    );
+    await waitFor(() => expect(onRequestCode).toHaveBeenCalledTimes(1));
+
+    const resendButton = () => getByRole("button") as HTMLButtonElement;
+    await waitFor(() => expect(resendButton().disabled).toBe(false));
+
+    fireEvent.click(resendButton());
+    await waitFor(() => expect(resendButton().textContent).toMatch(/resending/i));
+
+    // Parent swaps the email while this resend is still in flight (e.g. the
+    // user corrects a typo mid-request) — no further resend is fired for the
+    // new email in this test.
+    rerender(
+      <OtpConfirmationStep email="second@example.com" onRequestCode={onRequestCode} onVerifyCode={vi.fn(async () => {})} />,
+    );
+
+    rejectResend?.();
+
+    // Without the fix, `resending` never clears — its `finally` was gated on
+    // the OLD email still matching current — leaving Resend stuck on
+    // "Resending…" forever.
+    await waitFor(() => expect(resendButton().textContent).not.toMatch(/resending/i));
+  });
+});
