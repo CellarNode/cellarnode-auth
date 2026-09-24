@@ -1,0 +1,54 @@
+src/types.ts
+  s_db0f303ed0faab::t_832b80a2501c4e 128-142,149-153,157
+  s_db0f303ed0faab::t_d861597647375b 143-148
+__tests__/session-resolution.test.ts
+  s_db0f303ed0faab::t_f6cd49e8d6e927 4
+  s_db0f303ed0faab::t_a2cc75c78e3ff2 338,340-443
+  s_db0f303ed0faab::t_812721d12cd8e0 444,459
+  s_db0f303ed0faab::t_27563611c26e1c 686,694
+  s_db0f303ed0faab::t_6db7da5529b39b 275,291,294,300-304,307,309,319-331,335-336
+  s_db0f303ed0faab::t_0166e60c3686f9 332-334,337
+  s_181c7c8397f5c8::t_b2cf2f3b9fcfb9 339
+src/session-continuity.ts
+  s_db0f303ed0faab::t_991816d9ee56ca 92
+  s_db0f303ed0faab::t_601dad0995cd3f 122-123
+  s_db0f303ed0faab::t_e3b3df328ce582 133
+src/auth-client.ts
+  s_db0f303ed0faab::t_b6287d3ada34c8 138
+__tests__/auth-client.test.ts
+  s_db0f303ed0faab::t_b4d2f1c4a21950 304-358
+src/auth-store.ts
+  s_db0f303ed0faab::t_d1f63cbb419078 67
+  s_db0f303ed0faab::t_aa9422fc050bf4 727
+  s_db0f303ed0faab::t_52e39cd37b9324 525
+  s_db0f303ed0faab::t_b44ecfc7121c87 460
+  s_db0f303ed0faab::t_793484bd2d388e 591
+  s_db0f303ed0faab::t_0d0781dcc19dd3 648-653
+  s_db0f303ed0faab::t_7e9a4c98c65c83 193-218,222,224
+CHANGELOG.md
+  s_db0f303ed0faab::t_9dfb12980fa734 3-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8a0750e01cf54c31501c751d2a30369df687dd9e",
+  "prompts": {},
+  "sessions": {
+    "s_181c7c8397f5c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a73b049-fc20-4a4a-b6ee-3ce08e4ef023",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    },
+    "s_db0f303ed0faab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c26472c3-5f81-4fc3-a911-a1127182c6cb",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
