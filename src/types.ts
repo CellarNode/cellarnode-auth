@@ -125,9 +125,40 @@ export type SessionResolution =
   | { status: "unauthorized" }
   | { status: "superseded" };
 
+/**
+ * Guarded session-resolution state (CEL-2086).
+ *
+ * `resolving` and `revalidating` are both "not settled yet" but mean
+ * different things to a consumer deciding what to render:
+ *
+ * - `resolving` — no confirmed identity is available for the duration of
+ *   this operation (cold start, a failed/expired session recovering, or an
+ *   explicit new credential being adopted via `setAccessToken`/login). `user`
+ *   is unknown; consumers should treat protected UI as unauthenticated.
+ * - `revalidating` — a confirmed identity was already `ready` immediately
+ *   before this operation began (scheduled token renewal, a manual
+ *   `resolveSession({ refresh: true })`, or a non-rotating
+ *   `revalidateSession()` remint) and is carried on the state so consumers
+ *   can keep the existing workspace mounted instead of flashing a "verifying
+ *   session" screen. `user` and `confirmedToken` are the last identity/token
+ *   pair whose `/auth/me` actually matched each other — CEL-2086 review
+ *   round 1: mid-operation the store may already be holding a freshly
+ *   rotated, not-yet-verified candidate token, and that candidate must never
+ *   be exposed here paired with the OLD `user` (a consumer pairing an
+ *   unverified token with a stale org is exactly the bug this state exists
+ *   to prevent). `confirmedToken` never changes to the candidate until a
+ *   `ready` publish confirms the pairing; protected writes should still wait
+ *   for that `ready` (or treat `unavailable`/`unauthorized`) before assuming
+ *   anything beyond continuity of the confirmed pair.
+ *
+ * Explicit credential adoption (`setAccessToken`, OTP/dev login) always
+ * publishes `resolving`, even when a different account was previously
+ * `ready` — a new credential has no confirmed continuity with the old one.
+ */
 export type SessionState =
   | { status: "ready"; token: string; user: AuthUser }
   | { status: "resolving"; token: string | null }
+  | { status: "revalidating"; confirmedToken: string; user: AuthUser }
   | { status: "unavailable"; token: string | null }
   | { status: "unauthorized" };
 

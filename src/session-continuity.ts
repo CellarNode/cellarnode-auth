@@ -91,6 +91,8 @@ export async function resolveSessionForReplay(
     ((currentState?.status === "resolving" ||
       currentState?.status === "unavailable") &&
       currentState.token !== before.token) ||
+    (currentState?.status === "revalidating" &&
+      currentState.confirmedToken !== before.token) ||
     (currentState?.status === "ready" &&
       (!current ||
         current.userId !== before.userId ||
@@ -119,7 +121,9 @@ export async function resolveSessionForReplay(
       (unavailableState === undefined ||
         ((unavailableState.status === "unavailable" ||
           unavailableState.status === "resolving") &&
-          unavailableState.token === resolution.token))
+          unavailableState.token === resolution.token) ||
+        (unavailableState.status === "revalidating" &&
+          unavailableState.confirmedToken === resolution.token))
       ? resolution
       : { status: "superseded" };
   }
@@ -127,9 +131,10 @@ export async function resolveSessionForReplay(
 
   const afterState = store.getSessionState?.();
   if (
-    (afterState?.status === "resolving" ||
-      afterState?.status === "unavailable") &&
-    afterState.token === resolution.token
+    ((afterState?.status === "resolving" || afterState?.status === "unavailable") &&
+      afterState.token === resolution.token) ||
+    (afterState?.status === "revalidating" &&
+      afterState.confirmedToken === resolution.token)
   ) {
     return { status: "unavailable", token: resolution.token };
   }

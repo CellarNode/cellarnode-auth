@@ -301,6 +301,61 @@ describe("createAuthClient", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps same-token outage unavailable when a background revalidating starts before settlement (CEL-2086)", async () => {
+    const store = mockStore("tok_old", {
+      status: "unavailable",
+      token: "tok_old",
+    });
+    let state: "ready" | "revalidating" = "ready";
+    store.getSessionState = vi.fn(() =>
+      state === "ready"
+        ? { status: "ready", token: "tok_old", user: userA }
+        : { status: "revalidating", confirmedToken: "tok_old", user: userA },
+    );
+    (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      state = "revalidating";
+      return { status: "unavailable", token: "tok_old" };
+    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(response({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401));
+
+    const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
+    await expect(client.fetch("/api/write")).rejects.toMatchObject({
+      status: 503,
+      code: "SESSION_UNAVAILABLE",
+    });
+    expect(store.clearAccessToken).not.toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns unavailable when same-token authority starts revalidating again (CEL-2086)", async () => {
+    const store = mockStore();
+    let revalidatingAgain = false;
+    store.getSessionState = vi.fn(() =>
+      revalidatingAgain
+        ? { status: "revalidating", confirmedToken: "tok_new", user: userA }
+        : { status: "ready", token: "tok_old", user: userA },
+    );
+    (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      (store.getAccessToken as ReturnType<typeof vi.fn>).mockReturnValue("tok_new");
+      (store.getUserId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+      (store.getOrgId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+      revalidatingAgain = true;
+      return { status: "ready", token: "tok_new", user: userA };
+    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(response({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401));
+
+    const client = createAuthClient({ baseUrl: "http://localhost:4000", store });
+    await expect(client.fetch("/api/write")).rejects.toMatchObject({
+      status: 503,
+      code: "SESSION_UNAVAILABLE",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("returns actual retry failure and preserves validated session", async () => {
     const store = mockStore();
     global.fetch = vi
