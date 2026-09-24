@@ -576,6 +576,72 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"))).toHaveLength(1);
   });
 
+  it("discards a single-read post-refresh org divergence in favor of a corroborating re-read (CEL-2086)", async () => {
+    // Simulates a routine scheduled renewal (resolveSession({refresh:true}),
+    // no prior raw same-token mismatch) whose FIRST post-rotation /auth/me
+    // read transiently drops orgId, self-correcting on the next read.
+    let meReads = 0;
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/auth/refresh")) {
+        return Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+      }
+      meReads += 1;
+      if (meReads === 1) return Promise.resolve(response(userA));
+      if (meReads === 2) return Promise.resolve(response({ ...userA, orgId: null }));
+      return Promise.resolve(response(userA));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+    expect(store.getOrgId()).toBe("org_a");
+
+    const result = await store.resolveSession({ refresh: true });
+    expect(result).toMatchObject({ status: "ready", token: "tok_b" });
+    expect(store.getOrgId()).toBe("org_a");
+  });
+
+  it("adopts a post-refresh org change confirmed by a second independent read (CEL-2086)", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/auth/refresh")) {
+        return Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+      }
+      const token = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(
+        response(token === "Bearer tok_b" ? { ...userA, orgId: "org_b" } : userA),
+      );
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const result = await store.resolveSession({ refresh: true });
+    expect(result).toMatchObject({ status: "ready", token: "tok_b" });
+    expect(store.getOrgId()).toBe("org_b");
+  });
+
+  it("suspends rather than guesses when two post-refresh reads disagree with each other (CEL-2086)", async () => {
+    let meReads = 0;
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/auth/refresh")) {
+        return Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+      }
+      meReads += 1;
+      if (meReads === 1) return Promise.resolve(response(userA));
+      if (meReads === 2) return Promise.resolve(response({ ...userA, orgId: "org_b" }));
+      return Promise.resolve(response({ ...userA, orgId: "org_c" }));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    const result = await store.resolveSession({ refresh: true });
+    expect(result).toEqual({ status: "unavailable", token: "tok_b" });
+    expect(store.getOrgId()).toBeNull();
+  });
+
   it("retains validated continuity across 503 before raw org mismatch", async () => {
     let identityRead = 0;
     const fetchMock = vi.fn((url: string) => {

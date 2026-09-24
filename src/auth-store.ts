@@ -420,9 +420,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
     if (baseline && read.user.id !== baseline.user.id) {
       if (!refreshed) return runRefresh(generation, baseline);
-      return clearCurrentGeneration(generation)
-        ? { status: "unauthorized" }
-        : { status: "superseded" };
+      return confirmAuthorityDivergence(generation, token, baseline, read.user, "identity");
     }
 
     if (baseline && read.user.orgId !== baseline.user.orgId) {
@@ -431,12 +429,70 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         // then validate fresh credentials before adopting the transition.
         return runRefresh(generation, baseline);
       }
-      if (token === baseline.token) {
-        return markUnavailable(generation, token);
-      }
+      return confirmAuthorityDivergence(generation, token, baseline, read.user, "org");
     }
 
     return commitReady(generation, token, read.user);
+  }
+
+  /**
+   * A post-rotation identity read that diverges from the last confirmed
+   * baseline (a different user id, or the same user with a different orgId)
+   * is re-checked once more with an independent `/auth/me` read on the SAME
+   * token before it is trusted. A rotated token always differs from the
+   * baseline's, so — unlike the same-token raw-mismatch case above — a single
+   * divergent read here has no second signal to corroborate it: it could be a
+   * genuine account/org change, or a transient backend inconsistency right
+   * after rotation (replication lag, a cache still keyed off the old
+   * membership) surfacing on a routine scheduled renewal with no real change
+   * involved at all (CEL-2086, producer `orgId: null` report). Only a
+   * divergence that repeats on the follow-up read is adopted or escalated; a
+   * one-off is discarded in favor of the baseline, and two reads that
+   * disagree with each other AND the baseline suspend rather than guess.
+   */
+  async function confirmAuthorityDivergence(
+    generation: number,
+    token: string,
+    baseline: ReadyBaseline,
+    firstRead: AuthUser,
+    kind: "identity" | "org",
+  ): Promise<SessionResolution> {
+    const confirmation = await fetchIdentity(token);
+    if (generation !== tokenGeneration || accessToken !== token) {
+      return { status: "superseded" };
+    }
+    if (confirmation.status === "unauthorized") {
+      return clearCurrentGeneration(generation)
+        ? { status: "unauthorized" }
+        : { status: "superseded" };
+    }
+    if (confirmation.status === "unavailable") {
+      return markUnavailable(generation, token);
+    }
+
+    const confirmed = confirmation.user;
+    if (confirmed.id === baseline.user.id && confirmed.orgId === baseline.user.orgId) {
+      // The divergence did not repeat — commit the corroborating read and
+      // keep continuity with the previously confirmed identity.
+      return commitReady(generation, token, confirmed);
+    }
+
+    const repeatsFirstRead =
+      confirmed.id === firstRead.id && confirmed.orgId === firstRead.orgId;
+
+    if (!repeatsFirstRead) {
+      // Neither read agrees with the other nor with the baseline — the
+      // identity source is unstable. Don't adopt or discard, suspend.
+      return markUnavailable(generation, token);
+    }
+
+    if (kind === "identity") {
+      return clearCurrentGeneration(generation)
+        ? { status: "unauthorized" }
+        : { status: "superseded" };
+    }
+
+    return commitReady(generation, token, confirmed);
   }
 
   function startIdentityFlight(
