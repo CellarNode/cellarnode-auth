@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.18.0
 
 ### Added
 - `SessionState` gains a `"revalidating"` status (CEL-2086), distinct from `"resolving"`: published whenever a background operation (scheduled token renewal, a forced `resolveSession({ refresh: true })`, or a non-rotating `revalidateSession()` remint) starts while a confirmed `"ready"` session already exists. It carries the last CONFIRMED `user` and `confirmedToken` — never a freshly rotated, not-yet-verified candidate token — so consumers can keep their mounted workspace and identity displayed instead of flashing a full "verifying session" screen on routine background checks, without ever pairing an unverified credential with a stale org (CEL-2086 review round 1). `"resolving"` is now reserved for cold start, a truly unauthenticated caller, and explicit new-credential adoption (`setAccessToken`, OTP/dev login) — the latter always publishes `"resolving"` even when a different account was previously `"ready"`, since a new credential has no confirmed continuity with the old one. `captureSessionContinuity`/`resolveSessionForReplay` (and `auth-client`'s 401 retry) treat `"revalidating"` the same as `"resolving"`/`"unavailable"` for the purposes of suspending protected writes and detecting a superseded replay, comparing against `confirmedToken` for the revalidating case.
