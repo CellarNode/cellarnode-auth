@@ -89,9 +89,10 @@ export async function resolveSessionForReplay(
   if (
     currentState?.status === "unauthorized" ||
     ((currentState?.status === "resolving" ||
-      currentState?.status === "revalidating" ||
       currentState?.status === "unavailable") &&
       currentState.token !== before.token) ||
+    (currentState?.status === "revalidating" &&
+      currentState.confirmedToken !== before.token) ||
     (currentState?.status === "ready" &&
       (!current ||
         current.userId !== before.userId ||
@@ -119,9 +120,10 @@ export async function resolveSessionForReplay(
     return store.getAccessToken() === resolution.token &&
       (unavailableState === undefined ||
         ((unavailableState.status === "unavailable" ||
-          unavailableState.status === "resolving" ||
-          unavailableState.status === "revalidating") &&
-          unavailableState.token === resolution.token))
+          unavailableState.status === "resolving") &&
+          unavailableState.token === resolution.token) ||
+        (unavailableState.status === "revalidating" &&
+          unavailableState.confirmedToken === resolution.token))
       ? resolution
       : { status: "superseded" };
   }
@@ -129,10 +131,10 @@ export async function resolveSessionForReplay(
 
   const afterState = store.getSessionState?.();
   if (
-    (afterState?.status === "resolving" ||
-      afterState?.status === "revalidating" ||
-      afterState?.status === "unavailable") &&
-    afterState.token === resolution.token
+    ((afterState?.status === "resolving" || afterState?.status === "unavailable") &&
+      afterState.token === resolution.token) ||
+    (afterState?.status === "revalidating" &&
+      afterState.confirmedToken === resolution.token)
   ) {
     return { status: "unavailable", token: resolution.token };
   }

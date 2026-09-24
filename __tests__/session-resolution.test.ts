@@ -272,7 +272,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(identityCalls).toBe(2);
   });
 
-  it("publishes revalidating (not resolving) with the adopted token while a background refresh reconfirms an existing session (CEL-2086)", async () => {
+  it("publishes revalidating with the CONFIRMED token, never the not-yet-verified rotated one (CEL-2086 review round 1)", async () => {
     const refreshedIdentity = deferred<Response>();
     global.fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.includes("/auth/refresh")) {
@@ -288,24 +288,27 @@ describe("atomic session resolution (CEL-1782)", () => {
     await store.resolveSession({ refresh: false });
 
     const resolvingTokens: Array<string | null> = [];
-    const revalidatingTokens: Array<string | null> = [];
+    const revalidatingTokens: string[] = [];
     store.onSessionStateChange((state) => {
       if (state.status === "resolving") resolvingTokens.push(state.token);
-      if (state.status === "revalidating") revalidatingTokens.push(state.token);
+      if (state.status === "revalidating") revalidatingTokens.push(state.confirmedToken);
     });
 
     const refreshing = store.resolveSession({ refresh: true });
     await flush();
 
     // A confirmed baseline (tok_a/userA) existed before this refresh started,
-    // so neither publish is a bare "resolving" — both carry the retained
-    // identity as "revalidating", across the pre- and post-rotation token.
+    // so neither publish is a bare "resolving" — both carry the CONFIRMED
+    // token (tok_a) even after the store has already rotated to the new,
+    // not-yet-verified tok_b internally. Exposing that candidate token here
+    // paired with `userA` would let a consumer pair an unverified credential
+    // with a stale org (CEL-2086 review round 1).
     expect(resolvingTokens).toEqual([]);
-    expect(revalidatingTokens).toEqual(["tok_a", "tok_b"]);
+    expect(revalidatingTokens).toEqual(["tok_a", "tok_a"]);
     expect(store.getAccessToken()).toBe("tok_b");
     expect(store.getSessionState()).toEqual({
       status: "revalidating",
-      token: "tok_b",
+      confirmedToken: "tok_a",
       user: userA,
     });
 
@@ -384,7 +387,7 @@ describe("atomic session resolution (CEL-1782)", () => {
 
     // Both simultaneous callers observe the SAME single revalidating publish
     // — no duplicate POST, no flash back to bare resolving in between.
-    expect(states).toEqual([{ status: "revalidating", token: "tok_a", user: userA }]);
+    expect(states).toEqual([{ status: "revalidating", confirmedToken: "tok_a", user: userA }]);
 
     revalidate.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
     await expect(a).resolves.toMatchObject({ status: "ready", token: "tok_b" });
@@ -456,7 +459,7 @@ describe("atomic session resolution (CEL-1782)", () => {
 
     let nested: Promise<unknown> | null = null;
     const unsubscribe = store.onSessionStateChange((state) => {
-      if (state.status === "revalidating" && state.token === "tok_a" && !nested) {
+      if (state.status === "revalidating" && state.confirmedToken === "tok_a" && !nested) {
         nested = store.resolveSession({ refresh: true });
       }
     });
@@ -574,6 +577,56 @@ describe("atomic session resolution (CEL-1782)", () => {
     expect(store.getOrgId()).toBe("org_b");
     expect(tokenEvents).toEqual(["tok_a", "tok_b"]);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"))).toHaveLength(1);
+  });
+
+  it("fails closed immediately on a raw same-token identity divergence, without refreshing to corroborate it (CEL-2086 review round 1)", async () => {
+    let reads = 0;
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/auth/refresh")) {
+        throw new Error("must not refresh to corroborate an identity divergence");
+      }
+      reads += 1;
+      return Promise.resolve(response(reads === 1 ? userA : { ...userA, id: "user_2" }));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false }); // establishes baseline: user_1
+
+    await expect(store.resolveSession({ refresh: false })).resolves.toEqual({
+      status: "unauthorized",
+    });
+    expect(reads).toBe(2);
+    expect(store.getAccessToken()).toBeNull();
+  });
+
+  it("fails closed on a post-rotation identity divergence with no corroborating re-read, even though a later read would show the original user (CEL-2086 review round 1)", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/auth/refresh")) {
+        return Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }));
+      }
+      const token = new Headers(init?.headers).get("Authorization");
+      // A corroborating re-read on tok_b would see the ORIGINAL user again —
+      // user id is bound to the token, so a correct implementation must
+      // never make that call and must not let this "revert" resurrect ready.
+      return Promise.resolve(
+        response(token === "Bearer tok_b" ? { ...userA, id: "user_2" } : userA),
+      );
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    store.setAccessToken("tok_a", 900);
+    await store.resolveSession({ refresh: false });
+
+    await expect(store.resolveSession({ refresh: true })).resolves.toEqual({
+      status: "unauthorized",
+    });
+    // Exactly 2: the baseline read (user_1) and the single post-rotation
+    // read that diverged (user_2) — no third, corroborating call.
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/me"))).toHaveLength(
+      2,
+    );
+    expect(store.getAccessToken()).toBeNull();
   });
 
   it("discards a single-read post-refresh org divergence in favor of a corroborating re-read (CEL-2086)", async () => {
@@ -757,7 +810,7 @@ describe("atomic session resolution (CEL-1782)", () => {
     await flush();
 
     const unsubscribe = store.onSessionStateChange((state) => {
-      if (state.status === "revalidating" && state.token === "tok_a") {
+      if (state.status === "revalidating" && state.confirmedToken === "tok_a") {
         unsubscribe();
         store.clearAccessToken();
       }

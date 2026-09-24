@@ -140,12 +140,16 @@ export type SessionResolution =
  *   `resolveSession({ refresh: true })`, or a non-rotating
  *   `revalidateSession()` remint) and is carried on the state so consumers
  *   can keep the existing workspace mounted instead of flashing a "verifying
- *   session" screen. `user` is the last CONFIRMED identity, held steady for
- *   continuity. `token` tracks the operation's current candidate credential
- *   (the outgoing token before a rotation lands, the incoming one after) —
- *   it is NOT independently re-verified against `user` yet, so protected
- *   writes should still wait for the next `ready` (or treat
- *   `unavailable`/`unauthorized`) before trusting it.
+ *   session" screen. `user` and `confirmedToken` are the last identity/token
+ *   pair whose `/auth/me` actually matched each other — CEL-2086 review
+ *   round 1: mid-operation the store may already be holding a freshly
+ *   rotated, not-yet-verified candidate token, and that candidate must never
+ *   be exposed here paired with the OLD `user` (a consumer pairing an
+ *   unverified token with a stale org is exactly the bug this state exists
+ *   to prevent). `confirmedToken` never changes to the candidate until a
+ *   `ready` publish confirms the pairing; protected writes should still wait
+ *   for that `ready` (or treat `unavailable`/`unauthorized`) before assuming
+ *   anything beyond continuity of the confirmed pair.
  *
  * Explicit credential adoption (`setAccessToken`, OTP/dev login) always
  * publishes `resolving`, even when a different account was previously
@@ -154,7 +158,7 @@ export type SessionResolution =
 export type SessionState =
   | { status: "ready"; token: string; user: AuthUser }
   | { status: "resolving"; token: string | null }
-  | { status: "revalidating"; token: string; user: AuthUser }
+  | { status: "revalidating"; confirmedToken: string; user: AuthUser }
   | { status: "unavailable"; token: string | null }
   | { status: "unauthorized" };
 

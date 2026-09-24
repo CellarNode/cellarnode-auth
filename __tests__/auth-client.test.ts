@@ -310,7 +310,7 @@ describe("createAuthClient", () => {
     store.getSessionState = vi.fn(() =>
       state === "ready"
         ? { status: "ready", token: "tok_old", user: userA }
-        : { status: "revalidating", token: "tok_old", user: userA },
+        : { status: "revalidating", confirmedToken: "tok_old", user: userA },
     );
     (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       state = "revalidating";
@@ -334,7 +334,7 @@ describe("createAuthClient", () => {
     let revalidatingAgain = false;
     store.getSessionState = vi.fn(() =>
       revalidatingAgain
-        ? { status: "revalidating", token: "tok_new", user: userA }
+        ? { status: "revalidating", confirmedToken: "tok_new", user: userA }
         : { status: "ready", token: "tok_old", user: userA },
     );
     (store.resolveSession as ReturnType<typeof vi.fn>).mockImplementation(async () => {

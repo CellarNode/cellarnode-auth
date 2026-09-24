@@ -203,7 +203,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     baseline: ReadyBaseline | null,
   ): void {
     if (baseline && token !== null) {
-      publishSessionState({ status: "revalidating", token, user: baseline.user });
+      // `confirmedToken` is always the BASELINE token, never the candidate
+      // `token` argument — a rotated-but-not-yet-verified token must never
+      // be exposed paired with `baseline.user` (CEL-2086 review round 1).
+      publishSessionState({
+        status: "revalidating",
+        confirmedToken: baseline.token,
+        user: baseline.user,
+      });
     } else {
       publishSessionState({ status: "resolving", token });
     }
@@ -419,8 +426,16 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
 
     if (baseline && read.user.id !== baseline.user.id) {
-      if (!refreshed) return runRefresh(generation, baseline);
-      return confirmAuthorityDivergence(generation, token, baseline, read.user, "identity");
+      // User id is bound to the token — unlike an org divergence below,
+      // an identity divergence gets NO corroborating re-read, whether this
+      // read used the same token as the baseline or an already-rotated one
+      // (CEL-2086 review round 1). A second read that happened to report the
+      // original user back must not be allowed to resurrect "ready": once
+      // the confirmed token's identity has been seen to diverge, the session
+      // fails closed immediately.
+      return clearCurrentGeneration(generation)
+        ? { status: "unauthorized" }
+        : { status: "superseded" };
     }
 
     if (baseline && read.user.orgId !== baseline.user.orgId) {
@@ -429,7 +444,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         // then validate fresh credentials before adopting the transition.
         return runRefresh(generation, baseline);
       }
-      return confirmAuthorityDivergence(generation, token, baseline, read.user, "org");
+      return confirmOrgDivergence(generation, token, baseline, read.user);
     }
 
     return commitReady(generation, token, read.user);
@@ -437,25 +452,26 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
   /**
    * A post-rotation identity read that diverges from the last confirmed
-   * baseline (a different user id, or the same user with a different orgId)
-   * is re-checked once more with an independent `/auth/me` read on the SAME
-   * token before it is trusted. A rotated token always differs from the
-   * baseline's, so — unlike the same-token raw-mismatch case above — a single
-   * divergent read here has no second signal to corroborate it: it could be a
-   * genuine account/org change, or a transient backend inconsistency right
-   * after rotation (replication lag, a cache still keyed off the old
-   * membership) surfacing on a routine scheduled renewal with no real change
-   * involved at all (CEL-2086, producer `orgId: null` report). Only a
-   * divergence that repeats on the follow-up read is adopted or escalated; a
-   * one-off is discarded in favor of the baseline, and two reads that
-   * disagree with each other AND the baseline suspend rather than guess.
+   * baseline's `orgId` (same user id) is re-checked once more with an
+   * independent `/auth/me` read on the SAME token before it is trusted. A
+   * rotated token always differs from the baseline's, so — unlike the
+   * same-token raw-mismatch case above — a single divergent read here has no
+   * second signal to corroborate it: it could be a genuine org change, or a
+   * transient backend inconsistency right after rotation (replication lag, a
+   * cache still keyed off the old membership) surfacing on a routine
+   * scheduled renewal with no real change involved at all (CEL-2086,
+   * producer `orgId: null` report). Only a divergence that repeats on the
+   * follow-up read is adopted; a one-off is discarded in favor of the
+   * baseline, and two reads that disagree with each other AND the baseline
+   * suspend rather than guess. A user-id change surfacing on this
+   * confirming read gets the same no-corroboration treatment as the branch
+   * above — it exists only to corroborate an ORG divergence.
    */
-  async function confirmAuthorityDivergence(
+  async function confirmOrgDivergence(
     generation: number,
     token: string,
     baseline: ReadyBaseline,
     firstRead: AuthUser,
-    kind: "identity" | "org",
   ): Promise<SessionResolution> {
     const confirmation = await fetchIdentity(token);
     if (generation !== tokenGeneration || accessToken !== token) {
@@ -471,28 +487,26 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
 
     const confirmed = confirmation.user;
-    if (confirmed.id === baseline.user.id && confirmed.orgId === baseline.user.orgId) {
-      // The divergence did not repeat — commit the corroborating read and
-      // keep continuity with the previously confirmed identity.
-      return commitReady(generation, token, confirmed);
-    }
-
-    const repeatsFirstRead =
-      confirmed.id === firstRead.id && confirmed.orgId === firstRead.orgId;
-
-    if (!repeatsFirstRead) {
-      // Neither read agrees with the other nor with the baseline — the
-      // identity source is unstable. Don't adopt or discard, suspend.
-      return markUnavailable(generation, token);
-    }
-
-    if (kind === "identity") {
+    if (confirmed.id !== baseline.user.id) {
       return clearCurrentGeneration(generation)
         ? { status: "unauthorized" }
         : { status: "superseded" };
     }
 
-    return commitReady(generation, token, confirmed);
+    if (confirmed.orgId === baseline.user.orgId) {
+      // The divergence did not repeat — commit the corroborating read and
+      // keep continuity with the previously confirmed identity.
+      return commitReady(generation, token, confirmed);
+    }
+
+    if (confirmed.orgId === firstRead.orgId) {
+      // Same org divergence twice in a row: a genuine org change.
+      return commitReady(generation, token, confirmed);
+    }
+
+    // Neither read agrees with the other nor with the baseline on org —
+    // the org source is unstable. Don't guess; suspend rather than adopt.
+    return markUnavailable(generation, token);
   }
 
   function startIdentityFlight(
