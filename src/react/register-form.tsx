@@ -6,6 +6,20 @@ import type { AuthApi } from "../types.js";
 import { AuthError } from "../types.js";
 import { Loader2 } from "lucide-react";
 
+/**
+ * @deprecated CEL-2087: `RegisterForm` registers directly, with no proof the
+ * caller controls the submitted email. `/auth/register` will require
+ * `registrationToken` on the public route once backend phase 3 deploys
+ * (CEL-2087). From then on, this component's plain `register()` call fails
+ * with `400 REGISTRATION_TOKEN_REQUIRED` for every consumer. Build a
+ * confirm-first flow instead: `OtpConfirmationStep` (this package) to collect
+ * and verify a 6-digit code via `POST /auth/registration/request-code` /
+ * `verify-code`, then pass the resulting token as `RegisterInput.registrationToken`
+ * to `authApi.register()`. For a worked reference implementation of the full
+ * details → code → register sequence, see `cellarnode-importer-dashboard`'s
+ * `src/routes/create-account.tsx` (on main); producer-dashboard PR #869 adds
+ * the producer equivalent.
+ */
 export interface RegisterFormProps {
   userType: "importer" | "producer";
   onRegistered: () => void;
@@ -27,6 +41,7 @@ function RegisterCard({ children }: { readonly children: ReactNode }) {
   );
 }
 
+/** @deprecated See {@link RegisterFormProps} for why and what to use instead. */
 export function RegisterForm({
   userType,
   onRegistered,

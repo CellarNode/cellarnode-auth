@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0
+
+### Added
+- `RegisterInput.registrationToken` (CEL-2087 phase 3) — the confirm-first proof of email ownership from `POST /auth/registration/verify-code`, forwarded verbatim by `authApi.register()`. The backend's public `/auth/register` route will require it once backend phase 3 deploys: from then on, absent gets `400 REGISTRATION_TOKEN_REQUIRED`. Once the backend's optional-token check (backend PR #868) deploys, invalid/expired/wrong-email gets `400 REGISTRATION_TOKEN_INVALID`. Peeked, not consumed, by the backend — a subsequent `POST /auth/registration/session` call with the same token mints the session.
+
+### Deprecated
+- `RegisterForm` (CEL-2087) — registers directly with no proof the caller controls the submitted email, so once backend phase 3 deploys, its plain `register()` call fails the confirm-first requirement above for every consumer. Build a confirm-first flow instead: `OtpConfirmationStep` to collect and verify a code, then pass the resulting token as `RegisterInput.registrationToken`. Not removed yet. For a reference implementation, see `cellarnode-importer-dashboard`'s `src/routes/create-account.tsx` (on main); producer-dashboard PR #869 adds the producer equivalent.
+
 ## 0.18.0
 
 ### Added
