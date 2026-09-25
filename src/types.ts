@@ -32,12 +32,14 @@ export interface RegisterInput {
   inviteToken?: string;
   /**
    * CEL-2087: confirm-first proof of email ownership, from
-   * `POST /auth/registration/verify-code` after a valid OTP. Required
-   * server-side on the public route (phase 3) — a missing value gets
-   * `400 REGISTRATION_TOKEN_REQUIRED`, an invalid/expired/wrong-email one
-   * gets `400 REGISTRATION_TOKEN_INVALID`. Peeked, not consumed, by the
-   * backend; a subsequent `POST /auth/registration/session` call with the
-   * SAME token mints the session (that call is the token's sole consumer).
+   * `POST /auth/registration/verify-code` after a valid OTP. The public
+   * `/auth/register` route will require it once backend phase 3 deploys;
+   * from then on, a missing value gets `400 REGISTRATION_TOKEN_REQUIRED`.
+   * Once the backend's optional-token check (backend PR #868) deploys, an
+   * invalid/expired/wrong-email one gets `400 REGISTRATION_TOKEN_INVALID`.
+   * Peeked, not consumed, by the backend; a subsequent
+   * `POST /auth/registration/session` call with the SAME token mints the
+   * session (that call is the token's sole consumer).
    * `RegisterForm` (below) predates this field and cannot supply it — use
    * the confirm-first flow (`OtpConfirmationStep` + this field) instead.
    */
