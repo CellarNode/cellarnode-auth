@@ -1,0 +1,26 @@
+CHANGELOG.md
+  s_92b459b7ff7f1d::t_682894d35c67fc 6
+  s_92b459b7ff7f1d::t_a2777c17e1b278 9
+src/types.ts
+  s_92b459b7ff7f1d::t_682894d35c67fc 36-38
+  s_92b459b7ff7f1d::t_fa9613d60976ba 39-40
+  s_92b459b7ff7f1d::t_63976a32c1f84a 35,41-42
+src/react/register-form.tsx
+  s_92b459b7ff7f1d::t_8e538ad72cdf2e 11-13,18-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1b942cbf2b254c5480304ccac69b77231fe28eea",
+  "prompts": {},
+  "sessions": {
+    "s_92b459b7ff7f1d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2dc75322-3b0c-4e3f-94a2-6d44d6d56cd9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
