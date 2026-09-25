@@ -45,6 +45,27 @@ describe("createAuthApi", () => {
     );
   });
 
+  it("register forwards registrationToken (CEL-2087 confirm-first proof of email ownership)", async () => {
+    const client = mockClient();
+    (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      userId: "u1",
+    });
+
+    const api = createAuthApi({ client, store: mockStore() });
+    await api.register({
+      name: "Test",
+      email: "t@t.com",
+      userType: "producer",
+      registrationToken: "reg-tok-1",
+    });
+
+    const [, options] = (client.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      { body: string },
+    ];
+    expect(JSON.parse(options.body)).toMatchObject({ registrationToken: "reg-tok-1" });
+  });
+
   it("requestOtp calls POST /auth/request-otp with skipAuth", async () => {
     const client = mockClient();
     (client.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({

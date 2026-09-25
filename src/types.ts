@@ -30,6 +30,18 @@ export interface RegisterInput {
    * whenever the surface's self-registration switch is closed (the default).
    */
   inviteToken?: string;
+  /**
+   * CEL-2087: confirm-first proof of email ownership, from
+   * `POST /auth/registration/verify-code` after a valid OTP. Required
+   * server-side on the public route (phase 3) — a missing value gets
+   * `400 REGISTRATION_TOKEN_REQUIRED`, an invalid/expired/wrong-email one
+   * gets `400 REGISTRATION_TOKEN_INVALID`. Peeked, not consumed, by the
+   * backend; a subsequent `POST /auth/registration/session` call with the
+   * SAME token mints the session (that call is the token's sole consumer).
+   * `RegisterForm` (below) predates this field and cannot supply it — use
+   * the confirm-first flow (`OtpConfirmationStep` + this field) instead.
+   */
+  registrationToken?: string;
 }
 
 export interface RequestOtpResponse {
