@@ -1,0 +1,31 @@
+__tests__/auth-api.test.ts
+  s_26c0d16c645104::t_56aefb3a5f9aae 48-68
+src/react/register-form.tsx
+  s_26c0d16c645104::t_aeea9c856af642 44
+  s_26c0d16c645104::t_10d083e99eb0d1 9-22
+src/types.ts
+  s_26c0d16c645104::t_894d2848b9590d 33-44
+CHANGELOG.md
+  s_26c0d16c645104::t_a160ed5d5beaf4 13-16
+  s_26c0d16c645104::t_d4191092bad21c 5-6
+package.json
+  s_26c0d16c645104::t_8fc34316255107 3
+package-lock.json
+  s_26c0d16c645104::t_bd766ba5fc7291 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "96906ef48ecb91dc0633df45f066cda1ed3af47d",
+  "prompts": {},
+  "sessions": {
+    "s_26c0d16c645104": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fde0ddda-276c-4891-a752-95b1b97a31d2",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
