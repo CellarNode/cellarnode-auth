@@ -1,0 +1,24 @@
+src/auth-store.ts
+  s_4a31f68fd8a5ed::t_a3ff289e399281 267-268,270,274-278,280-304
+__tests__/renewal-recovery.test.ts
+  s_4a31f68fd8a5ed::t_fe92996c97897b 278-280
+  s_4a31f68fd8a5ed::t_3125bb04a9f85c 69,133,198-277,281-289
+CHANGELOG.md
+  s_4a31f68fd8a5ed::t_31f18576383143 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6ecac4e5278fe1164e74369452224baaa5f63f60",
+  "prompts": {},
+  "sessions": {
+    "s_4a31f68fd8a5ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "13f2286e-6849-47b9-9a27-b946530ed76b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
