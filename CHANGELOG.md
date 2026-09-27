@@ -15,6 +15,7 @@
   - If the rotation is still unconfirmed after that, the tab never presents the cookie again: no background retry, no "Try again" renewal, no read-401 fallback, no cold resolve. It fails closed locally instead: the token is cleared and `unauthorized` is published with the new `SessionEndReason` `"session-uncertain"`, so the app shows sign-in.
   - Signing one tab in again beats revoking every device. A new explicit sign-in or a confirmed rotation ends the uncertainty.
   - A late timer (for example Chrome's intensive throttling of hidden tabs) hits the same window check and fails closed.
+  - The uncertainty survives a reload. Only the timestamp (never a token) is kept in `sessionStorage`, keyed per product family and API origin, and read when the store is created. So a cold resolve in a reloaded tab can't present the cookie late either; that tab also ends as `session-uncertain`. If storage is unavailable or throws, it falls back to memory.
 - `revalidateSession()` renews while a renewal is owed (CEL-2107). A remint keeps the old expiry, so a "Try again" after a failed renewal restored the session for only a few seconds. When the last renewal failed, or the access token is within `refreshBuffer` of expiry, `revalidateSession()` now rotates through the refresh cookie instead. Otherwise it still remints without spending the refresh cookie (CEL-1853).
 
 ## 0.19.0

@@ -491,4 +491,91 @@ describe("renewal recovery (CEL-2107)", () => {
     await vi.advanceTimersByTimeAsync(840_000); // its own scheduled renewal presents again
     expect(calls.filter((c) => c === "/auth/refresh").length).toBe(before + 1);
   });
+
+  // CEL-2107 — the uncertainty survives a reload (sessionStorage, timestamp
+  // only), so a cold resolve in the reloaded tab cannot present late either.
+  function memoryStorage() {
+    const map = new Map<string, string>();
+    return {
+      map,
+      storage: {
+        getItem: (k: string) => map.get(k) ?? null,
+        setItem: (k: string, v: string) => void map.set(k, v),
+        removeItem: (k: string) => void map.delete(k),
+        clear: () => map.clear(),
+        key: () => null,
+        get length() {
+          return map.size;
+        },
+      } as Storage,
+    };
+  }
+
+  it("a reload inside the window does not bypass it: the cold resolve refuses once it has passed", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const { map, storage } = memoryStorage();
+    vi.stubGlobal("sessionStorage", storage);
+    const backend = uncertainBackend("offline");
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const first = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(first);
+
+    await vi.advanceTimersByTimeAsync(840_000); // commits, response lost
+    await vi.advanceTimersByTimeAsync(4_000); // timed out: uncertainty recorded
+    // Only a numeric timestamp is persisted, never a token.
+    expect([...map.values()]).toHaveLength(1);
+    expect([...map.values()][0]).toMatch(/^\d+$/);
+
+    // The user reloads; by the time the new page resolves, the window passed.
+    await vi.advanceTimersByTimeAsync(6_000);
+    const presented = backend.presentedAt.length;
+    const reloaded = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    const states: SessionState[] = [];
+    reloaded.onSessionStateChange((state) => states.push(state));
+
+    await expect(reloaded.resolveSession()).resolves.toEqual({ status: "unauthorized" });
+    expect(backend.presentedAt).toHaveLength(presented); // no late presentation
+    expect(backend.replayed()).toBe(0);
+    expect(states.at(-1)).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+  });
+
+  it("a confirmed rotation clears the persisted uncertainty", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const { map, storage } = memoryStorage();
+    vi.stubGlobal("sessionStorage", storage);
+    const backend = graceBackend(); // lost response, then an idempotent duplicate
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(store);
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000);
+    expect(map.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(2_000); // quick retry confirms the rotation
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+    expect(map.size).toBe(0);
+  });
+
+  it("falls back to memory when sessionStorage throws", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal("sessionStorage", {
+      getItem: () => {
+        throw new Error("SecurityError");
+      },
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new Error("SecurityError");
+      },
+    });
+    const backend = uncertainBackend("offline");
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(store);
+    await vi.advanceTimersByTimeAsync(840_000 + 120_000);
+    expect(store.getSessionState()).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+    expect(backend.replayed()).toBe(0);
+  });
 });

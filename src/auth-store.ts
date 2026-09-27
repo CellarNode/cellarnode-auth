@@ -123,6 +123,39 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       ? resolutionTimeoutMs
       : DEFAULT_RESOLUTION_TIMEOUT_MS;
 
+  // CEL-2107 — per product family + API origin, so two stores on one page
+  // (or two apps on one origin) never share an uncertainty.
+  const uncertaintyStorageKey = `cellarnode:auth:possibly-committed-at:${productFamily ?? "default"}:${baseUrl}`;
+
+  function sessionStorageOrNull(): Storage | null {
+    try {
+      return typeof sessionStorage === "undefined" ? null : sessionStorage;
+    } catch {
+      return null; // access itself can throw (sandboxed iframe, privacy mode)
+    }
+  }
+
+  function readPersistedUncertainty(): number | null {
+    try {
+      const raw = sessionStorageOrNull()?.getItem(uncertaintyStorageKey);
+      const at = raw ? Number(raw) : Number.NaN;
+      return Number.isFinite(at) ? at : null;
+    } catch {
+      return null; // unavailable storage: in-memory only
+    }
+  }
+
+  function setPossiblyCommittedAt(at: number | null): void {
+    possiblyCommittedAt = at;
+    try {
+      const storage = sessionStorageOrNull();
+      if (at === null) storage?.removeItem(uncertaintyStorageKey);
+      else storage?.setItem(uncertaintyStorageKey, String(at));
+    } catch {
+      // Quota/security errors: the in-memory value still guards this page.
+    }
+  }
+
   let accessToken: string | null = null;
   let identity: AuthUser | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -152,7 +185,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   // confirmed since: the server may have committed it (COMMIT_WINDOW_MS).
   // Deliberately survives a `session-uncertain` fail-closed: only a confirmed
   // rotation or an explicit new credential ends the uncertainty.
-  let possiblyCommittedAt: number | null = null;
+  // Persisted (timestamp ONLY, never a token) so a reload inside the window
+  // cannot bypass it: a cold resolve after reload must not present the cookie.
+  let possiblyCommittedAt: number | null = readPersistedUncertainty();
   // Wall-clock expiry of the current access token, when known.
   let accessTokenExpiresAt: number | null = null;
 
@@ -286,8 +321,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     accessTokenExpiresAt = Date.now() + expiresInSeconds * 1000;
     renewalOwed = false;
     renewalRetryAttempt = 0;
-    // A rotation was confirmed: nothing is possibly-committed any more.
-    possiblyCommittedAt = null;
+    // A rotation was confirmed (or a new credential adopted): nothing is
+    // possibly-committed any more.
+    setPossiblyCommittedAt(null);
     const delay = Math.max((expiresInSeconds - refreshBuffer) * 1000, 0);
     refreshTimer = setTimeout(() => {
       void store.resolveSession({ refresh: true });
@@ -459,7 +495,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
     renewalOwed = false;
     renewalRetryAttempt = 0;
-    if (reason !== "session-uncertain") possiblyCommittedAt = null;
+    if (reason !== "session-uncertain") setPossiblyCommittedAt(null);
     accessTokenExpiresAt = null;
     publishSessionState(
       reason ? { status: "unauthorized", reason } : { status: "unauthorized" },
@@ -713,7 +749,10 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
    */
   function failClosedUncertain(): SessionResolution {
     renewalOwed = false;
-    if (accessToken === null && sessionState.status === "unauthorized") {
+    if (accessToken === null) {
+      // No local credential (e.g. a reload inside the uncertainty): nothing to
+      // clear, but still say why, so the app shows sign-in.
+      publishSessionState({ status: "unauthorized", reason: "session-uncertain" });
       return { status: "unauthorized" };
     }
     return clearCurrentGeneration(tokenGeneration, "session-uncertain")
@@ -811,7 +850,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         );
       } catch (error) {
         if (error instanceof ResolutionTimeoutError && possiblyCommittedAt === null) {
-          possiblyCommittedAt = presentedAt;
+          setPossiblyCommittedAt(presentedAt);
         }
         return failRenewal();
       }
