@@ -1,0 +1,26 @@
+src/auth-store.ts
+  s_4a31f68fd8a5ed::t_0b8e67fa12a424 78-80,114-121,250-252,259-286,372-374,465-473,661-667,686,696,700,705,741,746-748,1026-1031
+__tests__/session-resolution.test.ts
+  s_4a31f68fd8a5ed::t_a801b31c6e13c9 828-833
+__tests__/renewal-recovery.test.ts
+  s_4a31f68fd8a5ed::t_4ab25cc5d56567 1-92,94-96,100-103,105,107-196
+  s_4a31f68fd8a5ed::t_1ebd5798c12f35 93,97-99,104,106
+CHANGELOG.md
+  s_4a31f68fd8a5ed::t_8f1ca0861b9ce7 3-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "193b1b7c30ac067480b3984e1535c4aac2f7e482",
+  "prompts": {},
+  "sessions": {
+    "s_4a31f68fd8a5ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "13f2286e-6849-47b9-9a27-b946530ed76b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
