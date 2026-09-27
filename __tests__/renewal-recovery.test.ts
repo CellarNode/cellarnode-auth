@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAuthApi } from "../src/auth-api.js";
+import { createAuthClient } from "../src/auth-client.js";
 import { createAuthStore } from "../src/auth-store.js";
 import type { AuthUser, SessionState } from "../src/types.js";
 
@@ -492,8 +494,8 @@ describe("renewal recovery (CEL-2107)", () => {
     expect(calls.filter((c) => c === "/auth/refresh").length).toBe(before + 1);
   });
 
-  // CEL-2107 — the uncertainty survives a reload (sessionStorage, timestamp
-  // only), so a cold resolve in the reloaded tab cannot present late either.
+  // CEL-2107 — the uncertainty survives a reload and is SHARED by same-origin
+  // tabs (localStorage, timestamps only): tabs share one refresh cookie jar.
   function memoryStorage() {
     const map = new Map<string, string>();
     return {
@@ -511,26 +513,84 @@ describe("renewal recovery (CEL-2107)", () => {
     };
   }
 
+  /**
+   * A backend with a real shared cookie JAR (what same-origin tabs share) and
+   * a real 10s grace. The first presentation rotates server-side but its
+   * response is lost (the jar keeps the old cookie); a duplicate of the old
+   * cookie inside the grace returns the committed successor; the old cookie
+   * outside it is REFRESH_REPLAYED. `afterLoss` decides what later
+   * presentations do until `online` is set.
+   */
+  function jarBackend(afterLoss: "hang" | "offline") {
+    const GRACE_MS = 10_000;
+    let serial = 0;
+    let current = "c0";
+    let previous: string | null = null;
+    let rotatedAt = 0;
+    let jar = "c0";
+    let lost = false;
+    let online = false;
+    const presentedAt: number[] = [];
+    let replayed = 0;
+    const hang = (init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    const refresh: Route = (init) => {
+      presentedAt.push(Date.now());
+      if (!lost) {
+        lost = true;
+        previous = current;
+        current = `c${++serial}`;
+        rotatedAt = Date.now();
+        return hang(init); // committed, response lost: jar keeps the old cookie
+      }
+      if (!online) return afterLoss === "offline" ? Promise.reject(new TypeError("Failed to fetch")) : hang(init);
+      if (jar === previous) {
+        if (Date.now() - rotatedAt > GRACE_MS) {
+          replayed += 1;
+          return Promise.resolve(response({ code: "REFRESH_REPLAYED" }, 401));
+        }
+        jar = current; // idempotent duplicate: the committed successor
+      } else if (jar === current) {
+        previous = current;
+        current = `c${++serial}`;
+        rotatedAt = Date.now();
+        jar = current;
+      }
+      return Promise.resolve(response({ accessToken: `tok_${jar}`, expiresIn: 900 }));
+    };
+    return {
+      refresh,
+      presentedAt,
+      committedAt: () => rotatedAt,
+      replayed: () => replayed,
+      goOnline: () => {
+        online = true;
+      },
+    };
+  }
+
+  const API = "http://localhost:4000";
+
   it("a reload inside the window does not bypass it: the cold resolve refuses once it has passed", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     const { map, storage } = memoryStorage();
-    vi.stubGlobal("sessionStorage", storage);
+    vi.stubGlobal("localStorage", storage);
     const backend = uncertainBackend("offline");
     routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
-    const first = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    const first = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
     await readySession(first);
 
     await vi.advanceTimersByTimeAsync(840_000); // commits, response lost
     await vi.advanceTimersByTimeAsync(4_000); // timed out: uncertainty recorded
-    // Only a numeric timestamp is persisted, never a token.
-    expect([...map.values()]).toHaveLength(1);
-    expect([...map.values()][0]).toMatch(/^\d+$/);
+    // Only numeric timestamps are persisted, never a token.
+    for (const value of map.values()) expect(value).toMatch(/^\d+$/);
 
-    // The user reloads; by the time the new page resolves, the window passed.
-    await vi.advanceTimersByTimeAsync(6_000);
+    await vi.advanceTimersByTimeAsync(6_000); // the user reloads after the window
     const presented = backend.presentedAt.length;
-    const reloaded = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    const reloaded = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
     const states: SessionState[] = [];
     reloaded.onSessionStateChange((state) => states.push(state));
 
@@ -540,26 +600,30 @@ describe("renewal recovery (CEL-2107)", () => {
     expect(states.at(-1)).toEqual({ status: "unauthorized", reason: "session-uncertain" });
   });
 
-  it("a confirmed rotation clears the persisted uncertainty", async () => {
+  it("a confirmed rotation ends the uncertainty (a later refresh presents again)", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0.5);
-    const { map, storage } = memoryStorage();
-    vi.stubGlobal("sessionStorage", storage);
-    const backend = graceBackend(); // lost response, then an idempotent duplicate
-    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
-    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    vi.stubGlobal("localStorage", memoryStorage().storage);
+    const backend = jarBackend("hang");
+    const calls = routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const store = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
     await readySession(store);
-    await vi.advanceTimersByTimeAsync(840_000 + 4_000);
-    expect(map.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000); // lost + timed out
+    backend.goOnline();
     await vi.advanceTimersByTimeAsync(2_000); // quick retry confirms the rotation
-    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
-    expect(map.size).toBe(0);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_c1" });
+
+    await vi.advanceTimersByTimeAsync(30_000); // far past the old window
+    const before = calls.filter((c) => c === "/auth/refresh").length;
+    await store.resolveSession({ refresh: true });
+    expect(calls.filter((c) => c === "/auth/refresh").length).toBe(before + 1);
+    expect(backend.replayed()).toBe(0);
   });
 
-  it("falls back to memory when sessionStorage throws", async () => {
+  it("falls back to memory when localStorage throws", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0.5);
-    vi.stubGlobal("sessionStorage", {
+    vi.stubGlobal("localStorage", {
       getItem: () => {
         throw new Error("SecurityError");
       },
@@ -572,10 +636,188 @@ describe("renewal recovery (CEL-2107)", () => {
     });
     const backend = uncertainBackend("offline");
     routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
-    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    const store = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
     await readySession(store);
     await vi.advanceTimersByTimeAsync(840_000 + 120_000);
     expect(store.getSessionState()).toEqual({ status: "unauthorized", reason: "session-uncertain" });
     expect(backend.replayed()).toBe(0);
+  });
+
+  // 0.20.1 residual B — tab B has its OWN store but shares the cookie jar and
+  // localStorage with tab A.
+  it("tab B presents only inside tab A's commit window and never after it", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal("localStorage", memoryStorage().storage);
+    const backend = jarBackend("offline");
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const tabA = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+    await readySession(tabA);
+    // Tab B was already open and signed in (it did NOT adopt a new credential
+    // after A's loss; a new sign-in would legitimately end the uncertainty).
+    // Its own renewal timer is pushed out so only the explicit calls below act.
+    const tabB = createAuthStore({ baseUrl: `${API}/`, refreshBuffer: -3_600 }); // same origin
+    await readySession(tabB);
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000); // A: lost + timed out
+
+    const statesB: SessionState[] = [];
+    tabB.onSessionStateChange((state) => statesB.push(state));
+    await tabB.resolveSession({ refresh: true }); // inside the window: allowed
+    await vi.advanceTimersByTimeAsync(120_000); // both tabs run out the window
+
+    for (const at of backend.presentedAt) expect(at - backend.committedAt()).toBeLessThan(8_000);
+    const presented = backend.presentedAt.length;
+    await tabB.resolveSession({ refresh: true }); // after the window: refused
+    await tabB.revalidateSession();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(backend.presentedAt).toHaveLength(presented);
+    expect(backend.replayed()).toBe(0);
+    expect(statesB.at(-1)).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+  });
+
+  it("tab A's confirmed rotation clears the uncertainty for tab B (no extra sign-in)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal("localStorage", memoryStorage().storage);
+    const backend = jarBackend("hang");
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const tabA = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+    await readySession(tabA);
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000); // A: lost + timed out
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(2_000); // A's quick retry confirms (jar is live)
+    expect(tabA.getSessionState()).toMatchObject({ status: "ready" });
+
+    await vi.advanceTimersByTimeAsync(60_000); // long past A's window
+    const tabB = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+    await expect(tabB.resolveSession()).resolves.toMatchObject({ status: "ready" }); // cold, presents the live jar cookie
+    expect(backend.replayed()).toBe(0);
+  });
+
+  // 0.20.1 P1 (also in 0.20.0): every app calls clearAccessToken() right
+  // after the session-uncertain bounce; that LOCAL clear must not end the
+  // uncertainty, or the sign-in page's cold refresh replays the old cookie.
+  async function failedClosed(storage: Storage) {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal("localStorage", storage);
+    const backend = uncertainBackend("offline");
+    routeFetch({
+      me: () => Promise.resolve(response(userA)),
+      refresh: backend.refresh,
+    });
+    const tab = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+    await readySession(tab);
+    await vi.advanceTimersByTimeAsync(840_000 + 120_000);
+    expect(tab.getSessionState()).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+    return { tab, backend };
+  }
+
+  it("a local clearAccessToken() after failing closed does not end the uncertainty", async () => {
+    const { tab, backend } = await failedClosed(memoryStorage().storage);
+    tab.clearAccessToken(); // what every app's unauthorized route does
+    const presented = backend.presentedAt.length;
+
+    await vi.advanceTimersByTimeAsync(300_000); // minutes later, on the sign-in page
+    await tab.resolveSession({ refresh: true }); // the cold refresh
+    await createAuthStore({ baseUrl: API, refreshBuffer: 60 }).resolveSession({ refresh: true }); // a reload
+
+    expect(backend.presentedAt).toHaveLength(presented); // presented NOTHING
+    expect(backend.replayed()).toBe(0);
+  });
+
+  it("a second tab's local clear does not end the uncertainty either", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal("localStorage", memoryStorage().storage);
+    const backend = uncertainBackend("offline");
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const tabA = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+    await readySession(tabA);
+    // Tab B was already signed in before A's loss (its own timer pushed out).
+    const tabB = createAuthStore({ baseUrl: API, refreshBuffer: -3_600 });
+    await readySession(tabB);
+    await vi.advanceTimersByTimeAsync(840_000 + 120_000); // A: lost, fails closed
+    expect(tabA.getSessionState()).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+
+    tabB.clearAccessToken(); // tab B signs out locally
+    const presented = backend.presentedAt.length;
+    await vi.advanceTimersByTimeAsync(300_000);
+    await tabA.resolveSession({ refresh: true });
+    await tabB.resolveSession({ refresh: true });
+    await createAuthStore({ baseUrl: API, refreshBuffer: 60 }).resolveSession({ refresh: true });
+    expect(backend.presentedAt).toHaveLength(presented);
+    expect(backend.replayed()).toBe(0);
+  });
+
+  it("a server-confirmed logout ends the uncertainty", async () => {
+    const { storage } = memoryStorage();
+    const { tab } = await failedClosed(storage);
+    const client = createAuthClient({ baseUrl: API, store: tab });
+    const api = createAuthApi({ client, store: tab });
+    const fetchBefore = vi.mocked(global.fetch).getMockImplementation()!;
+    vi.mocked(global.fetch).mockImplementation((url, init) =>
+      String(url).endsWith("/auth/logout")
+        ? Promise.resolve(response(null, 204))
+        : fetchBefore(url, init),
+    );
+    await api.logout();
+    expect(storage.getItem(`cellarnode:auth:default:${API}:possibly-committed-at`)).toBeNull();
+  });
+
+  it("a committed time in the future (clock set back) counts as expired: fails closed", async () => {
+    vi.useFakeTimers();
+    const { storage } = memoryStorage();
+    vi.stubGlobal("localStorage", storage);
+    storage.setItem(`cellarnode:auth:default:${API}:possibly-committed-at`, String(Date.now() + 60_000));
+    const backend = uncertainBackend("offline");
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const tab = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+    const states: SessionState[] = [];
+    tab.onSessionStateChange((state) => states.push(state));
+
+    await tab.resolveSession({ refresh: true });
+    expect(backend.presentedAt).toHaveLength(0);
+    expect(states.at(-1)).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+  });
+
+  it("a confirmed rotation removes the possibly-committed key", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const { storage } = memoryStorage();
+    vi.stubGlobal("localStorage", storage);
+    const backend = jarBackend("hang");
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const tab = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+    await readySession(tab);
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000);
+    expect(storage.getItem(`cellarnode:auth:default:${API}:possibly-committed-at`)).not.toBeNull();
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(tab.getSessionState()).toMatchObject({ status: "ready" });
+    expect(storage.getItem(`cellarnode:auth:default:${API}:possibly-committed-at`)).toBeNull();
+  });
+
+  // Review P2 — a future-dated uncertainty must not trap the user after an
+  // explicit sign-in (no later send could ever be ">= committed").
+  it("a sign-in supersedes a future-dated uncertainty: a forced refresh presents and stays ready", async () => {
+    vi.useFakeTimers();
+    const { storage } = memoryStorage();
+    vi.stubGlobal("localStorage", storage);
+    storage.setItem(`cellarnode:auth:default:${API}:possibly-committed-at`, String(Date.now() + 60_000));
+    const calls = routeFetch({
+      me: () => Promise.resolve(response(userA)),
+      refresh: () => Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 })),
+    });
+    const tab = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+
+    tab.setAccessToken("tok_a", 900); // explicit sign-in
+    await tab.resolveSession({ refresh: false });
+    const result = await tab.resolveSession({ refresh: true });
+
+    expect(calls).toContain("/auth/refresh");
+    expect(result).toMatchObject({ status: "ready", token: "tok_b" });
+    expect(tab.getSessionState()).toMatchObject({ status: "ready" });
+    expect(storage.getItem(`cellarnode:auth:default:${API}:possibly-committed-at`)).toBeNull();
   });
 });
