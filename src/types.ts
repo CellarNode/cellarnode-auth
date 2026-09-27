@@ -177,8 +177,13 @@ export type SessionResolution =
  *   else. The old identity is gone (fail closed, as before), but a valid
  *   session for the new identity exists, so consumers can reload into the new
  *   workspace instead of sending the user to sign-in.
+ *
+ * - `session-uncertain` — a refresh may have been committed server-side but
+ *   its response was lost, and the backend's replay grace has passed. The tab
+ *   stops presenting its refresh cookie (that could revoke every device) and
+ *   ends locally; consumers show sign-in.
  */
-export type SessionEndReason = "account-changed";
+export type SessionEndReason = "account-changed" | "session-uncertain";
 
 export type SessionState =
   | { status: "ready"; token: string; user: AuthUser }

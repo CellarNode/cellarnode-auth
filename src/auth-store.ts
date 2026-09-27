@@ -30,8 +30,19 @@ const DEFAULT_RESOLUTION_TIMEOUT_MS = 10_000;
  * the whole family on every device.
  */
 const REFRESH_REQUEST_TIMEOUT_MS = 4_000;
-/** First retry after a TIMED-OUT refresh: abort (≤4s) + this stays inside the grace. */
+/** Retry delay while a rotation may have committed (inside the commit window). */
 const TIMEOUT_RETRY_DELAY_MS = 1_500;
+/**
+ * CEL-2107 (review P2, family-revocation risk) — how long after the SEND of a
+ * refresh that timed out (the server may have committed the rotation and lost
+ * the response) this tab may keep presenting the old cookie. The backend
+ * accepts a duplicate presentation for 10s from `rotatedAt`, and `rotatedAt`
+ * is no earlier than the send, so every presentation before send + 8s lands
+ * inside that grace with a 2s margin. After it, presenting the cookie could
+ * be `REFRESH_REPLAYED`, which revokes the session family on EVERY device, so
+ * the tab fails closed locally instead (see `failClosedUncertain`).
+ */
+const COMMIT_WINDOW_MS = 8_000;
 
 /** A resolution request aborted by its own deadline (the server may have committed). */
 class ResolutionTimeoutError extends Error {
@@ -137,9 +148,11 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   // expiry), and a bounded backoff keeps retrying in the background.
   let renewalOwed = false;
   let renewalRetryAttempt = 0;
-  // The last renewal attempt was aborted by its deadline: the server may have
-  // committed the rotation (see REFRESH_REQUEST_TIMEOUT_MS).
-  let renewalTimedOut = false;
+  // Send time of the first refresh that timed out while no rotation has been
+  // confirmed since: the server may have committed it (COMMIT_WINDOW_MS).
+  // Deliberately survives a `session-uncertain` fail-closed: only a confirmed
+  // rotation or an explicit new credential ends the uncertainty.
+  let possiblyCommittedAt: number | null = null;
   // Wall-clock expiry of the current access token, when known.
   let accessTokenExpiresAt: number | null = null;
 
@@ -273,7 +286,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     accessTokenExpiresAt = Date.now() + expiresInSeconds * 1000;
     renewalOwed = false;
     renewalRetryAttempt = 0;
-    renewalTimedOut = false;
+    // A rotation was confirmed: nothing is possibly-committed any more.
+    possiblyCommittedAt = null;
     const delay = Math.max((expiresInSeconds - refreshBuffer) * 1000, 0);
     refreshTimer = setTimeout(() => {
       void store.resolveSession({ refresh: true });
@@ -291,12 +305,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // One timer slot shared with the scheduled renewal: a retry replaces it
     // and never stacks on top of it.
     if (refreshTimer) clearTimeout(refreshTimer);
-    if (renewalTimedOut) {
-      // A timed-out rotation may have committed server-side: re-present the
-      // cookie quickly, inside the backend grace, where it is an idempotent
-      // duplicate returning the committed successor. Not deferred for a
-      // hidden tab: waiting would leave the grace and replay the family.
-      renewalTimedOut = false;
+    if (possiblyCommittedAt !== null) {
+      // A rotation may have committed server-side: while the commit window is
+      // open, retry ANY failure (timeout or connection error) quickly, inside
+      // the backend grace, where a duplicate returns the committed successor.
+      // Not deferred for a hidden tab. Chrome's intensive throttling can
+      // still delay this timer (to about once a minute in a hidden tab); when
+      // it fires late, `runRefresh`'s window check fails closed instead of
+      // presenting the cookie outside the grace.
       renewalRetryAttempt += 1;
       const quick = TIMEOUT_RETRY_DELAY_MS + Math.round(Math.random() * 250);
       refreshTimer = setTimeout(() => {
@@ -443,7 +459,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
     renewalOwed = false;
     renewalRetryAttempt = 0;
-    renewalTimedOut = false;
+    if (reason !== "session-uncertain") possiblyCommittedAt = null;
     accessTokenExpiresAt = null;
     publishSessionState(
       reason ? { status: "unauthorized", reason } : { status: "unauthorized" },
@@ -688,6 +704,23 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       : null;
   }
 
+  /**
+   * CEL-2107 — this tab can no longer tell whether its refresh cookie was
+   * rotated (a lost response outside the commit window). Drop the local
+   * credential and publish `unauthorized` with reason `session-uncertain`, so
+   * the app shows sign-in. Signing this one tab in again is far better than
+   * REFRESH_REPLAYED revoking every device in the family.
+   */
+  function failClosedUncertain(): SessionResolution {
+    renewalOwed = false;
+    if (accessToken === null && sessionState.status === "unauthorized") {
+      return { status: "unauthorized" };
+    }
+    return clearCurrentGeneration(tokenGeneration, "session-uncertain")
+      ? { status: "unauthorized" }
+      : { status: "superseded" };
+  }
+
   function runRefresh(
     generation: number,
     baseline: ReadyBaseline | null,
@@ -695,6 +728,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     if (refreshFlight) return refreshFlight.promise;
     if (generation !== tokenGeneration) {
       return Promise.resolve({ status: "superseded" });
+    }
+    // CEL-2107 — the ONLY place the refresh cookie is presented. Once the
+    // commit window of a possibly-committed rotation has passed, never
+    // present it again (backoff, "Try again", read-401 fallback and a cold
+    // resolve all come through here): fail closed locally instead of risking
+    // REFRESH_REPLAYED, which would revoke the family on every device.
+    if (possiblyCommittedAt !== null && Date.now() >= possiblyCommittedAt + COMMIT_WINDOW_MS) {
+      return Promise.resolve(failClosedUncertain());
     }
 
     // Expiry renewal / forced refresh wins over an in-flight authority remint.
@@ -746,6 +787,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       return markUnavailable(refreshGeneration, accessToken);
     };
 
+    const presentedAt = Date.now();
     void (async (): Promise<SessionResolution> => {
       let result: { response: Response; raw: unknown };
       try {
@@ -768,7 +810,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           Math.min(requestTimeoutMs, REFRESH_REQUEST_TIMEOUT_MS),
         );
       } catch (error) {
-        if (error instanceof ResolutionTimeoutError) renewalTimedOut = true;
+        if (error instanceof ResolutionTimeoutError && possiblyCommittedAt === null) {
+          possiblyCommittedAt = presentedAt;
+        }
         return failRenewal();
       }
 

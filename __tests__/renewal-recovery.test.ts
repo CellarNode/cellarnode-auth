@@ -412,4 +412,83 @@ describe("renewal recovery (CEL-2107)", () => {
     // No stale backoff retry fires after the new credential was adopted.
     expect(refreshes()).toBe(2);
   });
+
+  // CEL-2107 residual P2 — after a lost response the tab may keep presenting
+  // the old cookie only inside a commit window that stays within the 10s
+  // grace; after that it fails closed LOCALLY (session-uncertain) instead of
+  // risking REFRESH_REPLAYED, which revokes the family on every device.
+  function uncertainBackend(after: "hang" | "offline") {
+    const GRACE_MS = 10_000;
+    let committedAt: number | null = null;
+    const presentedAt: number[] = [];
+    let replayed = 0;
+    const refresh: Route = (init) => {
+      presentedAt.push(Date.now());
+      if (committedAt !== null && Date.now() - committedAt > GRACE_MS) {
+        replayed += 1;
+        return Promise.resolve(response({ code: "REFRESH_REPLAYED" }, 401));
+      }
+      if (committedAt === null) committedAt = Date.now(); // commits; response lost
+      else if (after === "offline") return Promise.reject(new TypeError("Failed to fetch"));
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      });
+    };
+    return { refresh, presentedAt, committedAt: () => committedAt!, replayed: () => replayed };
+  }
+
+  it.each(["hang", "offline"] as const)(
+    "lost response, then %s: retries only inside the commit window, then fails closed as session-uncertain",
+    async (after) => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(0.999); // worst-case jitter
+      const backend = uncertainBackend(after);
+      routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+      const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+      await readySession(store);
+      const states: SessionState[] = [];
+      store.onSessionStateChange((state) => states.push(state));
+
+      await vi.advanceTimersByTimeAsync(840_000); // scheduled renewal: commits, hangs
+      await vi.advanceTimersByTimeAsync(120_000); // quick retries, then the window closes
+
+      expect(backend.replayed()).toBe(0);
+      expect(backend.presentedAt.length).toBeGreaterThanOrEqual(2); // it did retry
+      for (const at of backend.presentedAt) {
+        expect(at - backend.committedAt()).toBeLessThan(8_000); // inside the window
+      }
+      expect(states.at(-1)).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+      expect(store.getAccessToken()).toBeNull();
+
+      // Nothing may present the cookie again: not a cold resolve, not "Try
+      // again" (revalidate), not more time passing.
+      const presented = backend.presentedAt.length;
+      await expect(store.resolveSession()).resolves.toEqual({ status: "unauthorized" });
+      await store.revalidateSession();
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(backend.presentedAt).toHaveLength(presented);
+      expect(backend.replayed()).toBe(0);
+    },
+  );
+
+  it("a new sign-in ends the uncertainty", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = uncertainBackend("offline");
+    const calls = routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(store);
+    await vi.advanceTimersByTimeAsync(840_000 + 120_000);
+    expect(store.getSessionState()).toEqual({ status: "unauthorized", reason: "session-uncertain" });
+
+    // OTP sign-in adopts a brand-new credential (new refresh cookie).
+    store.setAccessToken("tok_new", 900);
+    await store.resolveSession({ refresh: false });
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_new" });
+    const before = calls.filter((c) => c === "/auth/refresh").length;
+    await vi.advanceTimersByTimeAsync(840_000); // its own scheduled renewal presents again
+    expect(calls.filter((c) => c === "/auth/refresh").length).toBe(before + 1);
+  });
 });
