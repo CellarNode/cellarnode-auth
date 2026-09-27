@@ -66,6 +66,7 @@ describe("renewal recovery (CEL-2107)", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("an expired token whose rotation fails on the network stays unavailable, never signs out", async () => {
@@ -129,6 +130,7 @@ describe("renewal recovery (CEL-2107)", () => {
 
   it("retries a failed scheduled renewal on a backoff until it succeeds", async () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5); // jitter factor 1.0
     let refreshOnline = false;
     const calls = routeFetch({
       me: () => Promise.resolve(response(userA)),
@@ -192,5 +194,97 @@ describe("renewal recovery (CEL-2107)", () => {
     expect(result).toMatchObject({ status: "ready", token: "tok_remint" });
     expect(calls).toContain("/auth/revalidate");
     expect(calls).not.toContain("/auth/refresh");
+  });
+
+  /** A session whose scheduled renewal just failed on the network. */
+  async function failedRenewal(options: { online?: () => boolean } = {}) {
+    const calls = routeFetch({
+      me: () => Promise.resolve(response(userA)),
+      refresh: () =>
+        options.online?.()
+          ? Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 }))
+          : Promise.reject(new TypeError("Failed to fetch")),
+    });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(store);
+    await vi.advanceTimersByTimeAsync(840_000);
+    expect(store.getSessionState().status).toBe("unavailable");
+    const refreshes = () => calls.filter((c) => c === "/auth/refresh").length;
+    return { store, refreshes };
+  }
+
+  it("jitters the retry delay (±20%) so tabs that failed together do not retry in lockstep", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.999); // +20% → ~6s
+    const { refreshes } = await failedRenewal();
+    await vi.advanceTimersByTimeAsync(5_900);
+    expect(refreshes()).toBe(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(refreshes()).toBe(2);
+  });
+
+  it("a hidden tab defers its retry until it is visible again", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const doc = Object.assign(new EventTarget(), { visibilityState: "hidden" });
+    vi.stubGlobal("document", doc);
+    let online = false;
+    const { store, refreshes } = await failedRenewal({ online: () => online });
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(refreshes()).toBe(1); // nothing while hidden
+
+    online = true;
+    doc.visibilityState = "visible";
+    doc.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refreshes()).toBe(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
+  it("stops retrying after sign-out", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const { store, refreshes } = await failedRenewal();
+    store.clearAccessToken();
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(refreshes()).toBe(1);
+  });
+
+  it("stops retrying once a rotation is refused (unauthorized)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    let refused = false;
+    const calls = routeFetch({
+      me: () => Promise.resolve(response(userA)),
+      refresh: () =>
+        refused
+          ? Promise.resolve(response({ code: "UNAUTHORIZED" }, 401))
+          : Promise.reject(new TypeError("Failed to fetch")),
+    });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(store);
+    await vi.advanceTimersByTimeAsync(840_000);
+    refused = true;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(store.getSessionState().status).toBe("unauthorized");
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(calls.filter((c) => c === "/auth/refresh")).toHaveLength(2);
+  });
+
+  it("a retry never stacks with the scheduled renewal timer", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    let online = false;
+    const { refreshes } = await failedRenewal({ online: () => online });
+    online = true;
+    // The retry at +5s succeeds and schedules the next renewal (900s - 60s);
+    // no second timer fires in between.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(refreshes()).toBe(2);
+    await vi.advanceTimersByTimeAsync(839_000);
+    expect(refreshes()).toBe(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(refreshes()).toBe(3);
   });
 });

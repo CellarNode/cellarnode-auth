@@ -264,15 +264,44 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
    */
   function scheduleRenewalRetry(): void {
     if (accessToken === null) return;
+    // One timer slot shared with the scheduled renewal: a retry replaces it
+    // and never stacks on top of it.
     if (refreshTimer) clearTimeout(refreshTimer);
-    const delay =
+    const base =
       RENEWAL_RETRY_DELAYS_MS[
         Math.min(renewalRetryAttempt, RENEWAL_RETRY_DELAYS_MS.length - 1)
       ]!;
+    // ±20% jitter: tabs that failed together (one outage, one shared refresh
+    // cookie) must not retry in lockstep. Concurrent same-cookie rotations are
+    // idempotent server-side within the grace window (CEL-1718/CEL-1867), so
+    // this only spreads load; it is not needed for correctness.
+    const delay = Math.round(base * (0.8 + Math.random() * 0.4));
     renewalRetryAttempt += 1;
-    refreshTimer = setTimeout(() => {
-      void store.resolveSession({ refresh: true });
-    }, delay);
+    refreshTimer = setTimeout(runRenewalRetryWhenVisible, delay);
+  }
+
+  /**
+   * A hidden (background) tab defers its retry until it is visible again, so
+   * N open tabs do not each hammer /auth/refresh during an outage. The
+   * visible tab's successful rotation updates the shared refresh cookie; the
+   * deferred tab then renews once, on its first return to the foreground.
+   */
+  function runRenewalRetryWhenVisible(): void {
+    refreshTimer = null;
+    if (accessToken === null || !renewalOwed) return;
+    const doc = typeof document === "undefined" ? null : document;
+    if (doc && doc.visibilityState === "hidden") {
+      const onVisible = () => {
+        if (doc.visibilityState === "hidden") return;
+        doc.removeEventListener("visibilitychange", onVisible);
+        if (accessToken !== null && renewalOwed && refreshTimer === null) {
+          void store.resolveSession({ refresh: true });
+        }
+      };
+      doc.addEventListener("visibilitychange", onVisible);
+      return;
+    }
+    void store.resolveSession({ refresh: true });
   }
 
   /** A remint cannot extend expiry, so a renewal is due instead. */
