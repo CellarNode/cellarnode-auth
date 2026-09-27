@@ -75,6 +75,9 @@ function copyResolution(resolution: SessionResolution): SessionResolution {
     : { ...resolution };
 }
 
+/** CEL-2107 — backoff between background renewal retries after a failure. */
+const RENEWAL_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000] as const;
+
 export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   const {
     baseUrl,
@@ -108,6 +111,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   // continuity while permitting a fresh-token organisation transition.
   let pendingRefreshBaseline: ReadyBaseline | null = null;
   let sessionState: SessionState = { status: "unauthorized" };
+  // CEL-2107 — a rotation is owed when the last renewal attempt failed before
+  // a new token was adopted (network / 5xx / malformed). Until one succeeds,
+  // `revalidateSession()` renews instead of reminting (a remint keeps the old
+  // expiry), and a bounded backoff keeps retrying in the background.
+  let renewalOwed = false;
+  let renewalRetryAttempt = 0;
+  // Wall-clock expiry of the current access token, when known.
+  let accessTokenExpiresAt: number | null = null;
 
   const orgChangeListeners = new Set<OrgChangeListener>();
   const accessTokenSetListeners = new Set<AccessTokenSetListener>();
@@ -236,10 +247,41 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
   function scheduleRefresh(expiresInSeconds: number): void {
     if (refreshTimer) clearTimeout(refreshTimer);
+    accessTokenExpiresAt = Date.now() + expiresInSeconds * 1000;
+    renewalOwed = false;
+    renewalRetryAttempt = 0;
     const delay = Math.max((expiresInSeconds - refreshBuffer) * 1000, 0);
     refreshTimer = setTimeout(() => {
       void store.resolveSession({ refresh: true });
     }, delay);
+  }
+
+  /**
+   * CEL-2107 — a failed renewal used to re-arm nothing: the timer that fired
+   * was spent, `revalidateSession()` never reschedules, so the access token
+   * simply expired and the next navigation met a 401. Retry the rotation on a
+   * bounded backoff while a credential is still held.
+   */
+  function scheduleRenewalRetry(): void {
+    if (accessToken === null) return;
+    if (refreshTimer) clearTimeout(refreshTimer);
+    const delay =
+      RENEWAL_RETRY_DELAYS_MS[
+        Math.min(renewalRetryAttempt, RENEWAL_RETRY_DELAYS_MS.length - 1)
+      ]!;
+    renewalRetryAttempt += 1;
+    refreshTimer = setTimeout(() => {
+      void store.resolveSession({ refresh: true });
+    }, delay);
+  }
+
+  /** A remint cannot extend expiry, so a renewal is due instead. */
+  function renewalDue(): boolean {
+    if (renewalOwed) return true;
+    return (
+      accessTokenExpiresAt !== null &&
+      Date.now() >= accessTokenExpiresAt - refreshBuffer * 1000
+    );
   }
 
   function withResolutionTimeout<T>(
@@ -327,6 +369,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       clearTimeout(refreshTimer);
       refreshTimer = null;
     }
+    renewalOwed = false;
+    renewalRetryAttempt = 0;
+    accessTokenExpiresAt = null;
     publishSessionState({ status: "unauthorized" });
     if (tokenGeneration !== clearedGeneration || accessToken !== null) return false;
     emitAccessTokenSet(
@@ -417,6 +462,15 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
 
     if (read.status === "unauthorized") {
+      // CEL-2107 — a 401 on a read that did NOT just rotate credentials is
+      // most often an access token that expired while its renewal could not
+      // run (network outage). The refresh cookie is the authority on whether
+      // the session still exists: rotate once, and only a refused rotation
+      // signs out. A rotation that fails on the network stays `unavailable`
+      // instead of tearing down a valid session.
+      if (!refreshed && baseline) {
+        return runRefresh(generation, baseline);
+      }
       return clearCurrentGeneration(generation)
         ? { status: "unauthorized" }
         : { status: "superseded" };
@@ -604,6 +658,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     const refreshGeneration = tokenGeneration;
     flight.generation = refreshGeneration;
 
+    // CEL-2107 — a failure before a new token is adopted leaves the rotation
+    // owed (see `renewalOwed`); the retry is scheduled once the flight settles.
+    const failRenewal = (): SessionResolution => {
+      if (refreshGeneration === tokenGeneration) renewalOwed = true;
+      return markUnavailable(refreshGeneration, accessToken);
+    };
+
     void (async (): Promise<SessionResolution> => {
       let result: { response: Response; raw: unknown };
       try {
@@ -622,7 +683,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           },
         });
       } catch {
-        return markUnavailable(refreshGeneration, accessToken);
+        return failRenewal();
       }
 
       const { response, raw } = result;
@@ -632,16 +693,16 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           ? { status: "unauthorized" }
           : { status: "superseded" };
       }
-      if (!response.ok) return markUnavailable(refreshGeneration, accessToken);
+      if (!response.ok) return failRenewal();
 
       if (refreshGeneration !== tokenGeneration) return { status: "superseded" };
       if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-        return markUnavailable(refreshGeneration, accessToken);
+        return failRenewal();
       }
 
       const json = raw as Record<string, unknown>;
       const nextToken = extractAccessToken(json);
-      if (!nextToken) return markUnavailable(refreshGeneration, accessToken);
+      if (!nextToken) return failRenewal();
 
       const expiresIn =
         typeof json.expiresIn === "number" && Number.isFinite(json.expiresIn)
@@ -677,11 +738,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     })().then(
       (result) => {
         if (refreshFlight === flight) refreshFlight = null;
+        if (result.status === "unavailable" && renewalOwed) scheduleRenewalRetry();
         settle(result);
       },
       () => {
         if (refreshFlight === flight) refreshFlight = null;
-        settle(markUnavailable(refreshGeneration, accessToken));
+        const result = failRenewal();
+        if (result.status === "unavailable") scheduleRenewalRetry();
+        settle(result);
       },
     );
     return promise;
@@ -959,7 +1023,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           ? refreshFlight.promise
           : authorityFlight
             ? authorityFlight.promise
-            : runRevalidate(tokenGeneration);
+            : // CEL-2107 — a remint keeps the old expiry; when a renewal is
+              // owed (the last one failed) or due, rotate instead so a
+              // "Try again" actually restores a lasting session.
+              accessToken !== null && renewalDue()
+              ? runRefresh(tokenGeneration, currentBaseline())
+              : runRevalidate(tokenGeneration);
       return waitForCaller(operation, options.signal);
     },
 

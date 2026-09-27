@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- A renewal that fails on the network no longer turns into a sign-out (CEL-2107). A `/auth/me` 401 on a confirmed session whose token was not just rotated (the access token expired because its renewal could not run) now asks the refresh cookie once before giving up. Only a refused rotation (401/403) publishes `unauthorized`, and a rotation that fails on the network stays `unavailable`. Before, the 401 cleared the session immediately, so a transient outage plus expiry tore a valid session down (the producer landed on /login although the session was still valid).
+- A failed scheduled renewal is retried in the background (CEL-2107). A renewal that fails before a new token is adopted (network, 5xx, malformed response) used to re-arm nothing, so the access token simply expired. It is now retried after 5s, 15s, 30s, then every 60s while a credential is held, and the backoff resets on the next successful rotation or on sign-out.
+- `revalidateSession()` renews while a renewal is owed (CEL-2107). A remint keeps the old expiry, so a "Try again" after a failed renewal restored the session for only a few seconds. When the last renewal failed, or the access token is within `refreshBuffer` of expiry, `revalidateSession()` now rotates through the refresh cookie instead. Otherwise it still remints without spending the refresh cookie (CEL-1853).
+
 ## 0.19.0
 
 ### Added
