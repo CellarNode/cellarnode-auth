@@ -123,6 +123,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       ? resolutionTimeoutMs
       : DEFAULT_RESOLUTION_TIMEOUT_MS;
 
+  // Scoping note: localStorage is per APP origin, the refresh cookie per API
+  // origin. Tabs of one app share both, which is the case handled here. Two
+  // different app origins that talk to the same API (and so share its
+  // cookie) do NOT see each other's uncertainty; each still fails closed on
+  // its own timeouts, and the backend grace (CEL-2113) is the remaining guard.
+  //
   // CEL-2107 (0.20.1) — the commit-window uncertainty is SHARED by every
   // same-origin tab through localStorage: tabs share one refresh cookie jar,
   // so a rotation possibly committed by tab A (lost response) makes tab B's
@@ -197,6 +203,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
   /** A live credential was confirmed; `sentAt` is when its request left. */
   function recordConfirmedRotation(sentAt: number): void {
+    const committed = readTimestamp(possiblyCommittedKey) ?? memoryPossiblyCommittedAt;
+    if (committed !== null && sentAt >= committed) clearUncertainty();
     memoryLastConfirmedRotationAt = Math.max(memoryLastConfirmedRotationAt ?? sentAt, sentAt);
     writeTimestamp(
       lastConfirmedRotationKey,
@@ -549,7 +557,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
     renewalOwed = false;
     renewalRetryAttempt = 0;
-    if (reason !== "session-uncertain") clearUncertainty();
+    // CEL-2107 (0.20.1, P1 in 0.20.0): a LOCAL clear never ends the
+    // uncertainty. Every app calls clearAccessToken() right after the
+    // session-uncertain bounce; ending it here let the sign-in page's cold
+    // refresh present the old cookie minutes later (REPLAYED, every device
+    // signed out). Only a confirmed rotation, an explicit new sign-in, or a
+    // server-confirmed logout (`endSessionUncertainty`) may end it.
     accessTokenExpiresAt = null;
     publishSessionState(
       reason ? { status: "unauthorized", reason } : { status: "unauthorized" },
@@ -828,7 +841,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // resolve all come through here): fail closed locally instead of risking
     // REFRESH_REPLAYED, which would revoke the family on every device.
     const uncertainSince = currentUncertainty();
-    if (uncertainSince !== null && Date.now() >= uncertainSince + COMMIT_WINDOW_MS) {
+    // A committed time in the FUTURE (the clock was set back) cannot be
+    // trusted to still be inside the grace: treat it as expired.
+    const now = Date.now();
+    if (
+      uncertainSince !== null &&
+      (now >= uncertainSince + COMMIT_WINDOW_MS || uncertainSince > now)
+    ) {
       return Promise.resolve(failClosedUncertain());
     }
 
@@ -1238,6 +1257,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
               ? authorityFlight.promise
               : resolveCurrentSession();
       return waitForCaller(operation, options.signal);
+    },
+
+    endSessionUncertainty() {
+      // Only after the SERVER confirmed the session is gone (logout /
+      // revoke-all succeeded): the old cookie can no longer be replayed.
+      clearUncertainty();
     },
 
     revalidateSession(options: RevalidateSessionOptions = {}) {

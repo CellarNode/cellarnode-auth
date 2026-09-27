@@ -1,8 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.20.1
+
+### Added
+- `endSessionUncertainty()` on the concrete store (CEL-2107). It ends a `session-uncertain` state. `authApi.logout()` and `authApi.signOutEverywhere()` call it after the server confirmed the session is gone; a local `clearAccessToken()` never does.
 
 ### Fixed
+- **0.20.0 bug:** a local `clearAccessToken()` ended the `session-uncertain` fail-closed state (CEL-2107, P1). Every consumer calls `clearAccessToken()` right after the `session-uncertain` bounce, and that wiped the uncertainty, so the sign-in page's cold refresh presented the old refresh cookie minutes later. That meant `REFRESH_REPLAYED` and every device in the family signed out, which defeated the fail-closed. Now only a confirmed rotation, an explicit new sign-in, or a server-confirmed logout ends it, in this tab or any other.
+- A possibly-committed time in the FUTURE (the device clock was set back) now counts as expired: the tab fails closed instead of presenting.
+- A confirmed rotation now removes the stored possibly-committed timestamp.
 - The commit-window uncertainty is now shared by every same-origin tab (CEL-2107, residual B). Tabs share one refresh cookie jar, so a rotation that tab A may have committed (lost response) makes tab B's old cookie just as unsafe to present after the backend's grace.
   - The possibly-committed send time moved from `sessionStorage` to `localStorage`, and every tab's refresh reads it fresh. Tab B presents only inside A's commit window, and after it fails closed as `session-uncertain`.
   - A shared `last-confirmed-rotation-at` (the SEND time of the confirming refresh, or of an explicit new sign-in) lets any tab's confirmed rotation clear the uncertainty for all tabs. The jar then holds a live cookie, so a recovered tab no longer forces an extra sign-in elsewhere.

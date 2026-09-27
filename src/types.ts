@@ -374,6 +374,12 @@ export interface ConcreteAuthStore extends AuthStore {
   revalidateSession(options?: RevalidateSessionOptions): Promise<SessionResolution>;
   onSessionStateChange(listener: SessionStateListener): () => void;
   getSessionState(): SessionState;
+  /**
+   * CEL-2107 — end a `session-uncertain` state after the server confirmed the
+   * session is gone (logout / revoke-all succeeded). A local
+   * `clearAccessToken()` deliberately does NOT end it.
+   */
+  endSessionUncertainty?(): void;
 }
 
 export interface AuthClientConfig {

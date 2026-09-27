@@ -90,6 +90,9 @@ export function createAuthApi(config: {
           ? { headers: { Authorization: `Bearer ${token}` } }
           : {}),
       });
+      // CEL-2107 — the server confirmed the logout: the refresh cookie is
+      // revoked, so a possibly-committed rotation can no longer be replayed.
+      (store as { endSessionUncertainty?: () => void }).endSessionUncertainty?.();
     },
 
     // CEL-1722: revoke every session in the family server-side (backend PR
@@ -110,6 +113,8 @@ export function createAuthApi(config: {
             : {}),
         });
         store.clearAccessToken();
+        // CEL-2107 — the server revoked the family: nothing left to replay.
+        (store as { endSessionUncertainty?: () => void }).endSessionUncertainty?.();
         return {
           revokedSessions:
             typeof raw.revokedSessions === "number" ? raw.revokedSessions : 0,
