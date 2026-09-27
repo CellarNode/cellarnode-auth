@@ -13,6 +13,7 @@ import type {
   OrgChangeListener,
   ResolveSessionOptions,
   RevalidateSessionOptions,
+  SessionEndReason,
   SessionResolution,
   SessionState,
   SessionStateListener,
@@ -381,7 +382,10 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       : { status: "unavailable" };
   }
 
-  function clearCurrentGeneration(generation: number): boolean {
+  function clearCurrentGeneration(
+    generation: number,
+    reason?: SessionEndReason,
+  ): boolean {
     if (generation !== tokenGeneration) return false;
     tokenGeneration += 1;
     const clearedGeneration = tokenGeneration;
@@ -401,7 +405,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     renewalOwed = false;
     renewalRetryAttempt = 0;
     accessTokenExpiresAt = null;
-    publishSessionState({ status: "unauthorized" });
+    publishSessionState(
+      reason ? { status: "unauthorized", reason } : { status: "unauthorized" },
+    );
     if (tokenGeneration !== clearedGeneration || accessToken !== null) return false;
     emitAccessTokenSet(
       null,
@@ -515,8 +521,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       // (CEL-2086 review round 1). A second read that happened to report the
       // original user back must not be allowed to resurrect "ready": once
       // the confirmed token's identity has been seen to diverge, the session
-      // fails closed immediately.
-      return clearCurrentGeneration(generation)
+      // fails closed immediately. CEL-2107: when the divergent read followed
+      // a rotation, the shared refresh cookie now belongs to another account
+      // (another tab signed in); say so, so consumers can reload into it.
+      return clearCurrentGeneration(
+        generation,
+        refreshed ? "account-changed" : undefined,
+      )
         ? { status: "unauthorized" }
         : { status: "superseded" };
     }
@@ -571,7 +582,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
     const confirmed = confirmation.user;
     if (confirmed.id !== baseline.user.id) {
-      return clearCurrentGeneration(generation)
+      // Only reached after a rotation (see confirmOrgDivergence's caller).
+      return clearCurrentGeneration(generation, "account-changed")
         ? { status: "unauthorized" }
         : { status: "superseded" };
     }

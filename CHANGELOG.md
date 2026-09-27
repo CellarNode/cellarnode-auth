@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- `SessionState`'s `unauthorized` status can carry `reason: "account-changed"` (new `SessionEndReason` type, CEL-2107). It is set when a rotation through the shared refresh cookie returns a different user than the confirmed one, which happens when another tab signed in as someone else. The session still fails closed exactly as before (token cleared, `unauthorized`), but consumers can now reload into the new account's workspace instead of sending the user to sign-in. This is additive: the reason is optional and absent on an ordinary sign-out.
+
 ### Fixed
 - A renewal that fails on the network no longer turns into a sign-out (CEL-2107). A `/auth/me` 401 on a confirmed session whose token was not just rotated (the access token expired because its renewal could not run) now asks the refresh cookie once before giving up. Only a refused rotation (401/403) publishes `unauthorized`, and a rotation that fails on the network stays `unavailable`. Before, the 401 cleared the session immediately, so a transient outage plus expiry tore a valid session down (the producer landed on /login although the session was still valid).
 - A failed scheduled renewal is retried in the background (CEL-2107). A renewal that fails before a new token is adopted (network, 5xx, malformed response) used to re-arm nothing, so the access token simply expired. It is now retried after about 5s, 15s, 30s, then every 60s while a credential is held. Each delay has ±20% jitter, so tabs that failed together don't retry in lockstep, and a hidden tab defers its retry until it is visible again. Retries share the scheduled renewal's single timer, so the two never stack. They stop on sign-out or when a rotation is refused, and the backoff resets on the next successful rotation.

@@ -43,6 +43,7 @@ export {
   type RevalidateSessionOptions,
   type SessionResolution,
   type SessionState,
+  type SessionEndReason,
   type SessionStateListener,
   type SessionContinuity,
   type OrgChangeListener,

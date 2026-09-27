@@ -287,4 +287,42 @@ describe("renewal recovery (CEL-2107)", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(refreshes()).toBe(3);
   });
+
+  // CEL-2107 P4 — an account change in another tab ends this identity (fail
+  // closed, as before) but says why, so the app can reload into the new
+  // workspace instead of sending the user to sign-in.
+  it("marks a post-rotation user divergence as account-changed", async () => {
+    let switched = false;
+    routeFetch({
+      me: () => Promise.resolve(response(switched ? { ...userA, id: "user_2" } : userA)),
+      refresh: () => Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 })),
+    });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    await readySession(store);
+    const states: SessionState[] = [];
+    store.onSessionStateChange((state) => states.push(state));
+
+    switched = true; // another tab signed in as user_2 (shared refresh cookie)
+    await store.resolveSession({ refresh: true });
+
+    expect(states.at(-1)).toEqual({ status: "unauthorized", reason: "account-changed" });
+    expect(store.getAccessToken()).toBeNull();
+  });
+
+  it("a same-token divergence or an ordinary sign-out carries no reason", async () => {
+    let switched = false;
+    routeFetch({ me: () => Promise.resolve(response(switched ? { ...userA, id: "user_2" } : userA)) });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000" });
+    await readySession(store);
+    const states: SessionState[] = [];
+    store.onSessionStateChange((state) => states.push(state));
+
+    switched = true;
+    await store.resolveSession({ refresh: false });
+    expect(states.at(-1)).toEqual({ status: "unauthorized" });
+
+    await readySession(store);
+    store.clearAccessToken();
+    expect(states.at(-1)).toEqual({ status: "unauthorized" });
+  });
 });
