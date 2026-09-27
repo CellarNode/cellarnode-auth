@@ -797,4 +797,27 @@ describe("renewal recovery (CEL-2107)", () => {
     expect(tab.getSessionState()).toMatchObject({ status: "ready" });
     expect(storage.getItem(`cellarnode:auth:default:${API}:possibly-committed-at`)).toBeNull();
   });
+
+  // Review P2 — a future-dated uncertainty must not trap the user after an
+  // explicit sign-in (no later send could ever be ">= committed").
+  it("a sign-in supersedes a future-dated uncertainty: a forced refresh presents and stays ready", async () => {
+    vi.useFakeTimers();
+    const { storage } = memoryStorage();
+    vi.stubGlobal("localStorage", storage);
+    storage.setItem(`cellarnode:auth:default:${API}:possibly-committed-at`, String(Date.now() + 60_000));
+    const calls = routeFetch({
+      me: () => Promise.resolve(response(userA)),
+      refresh: () => Promise.resolve(response({ accessToken: "tok_b", expiresIn: 900 })),
+    });
+    const tab = createAuthStore({ baseUrl: API, refreshBuffer: 60 });
+
+    tab.setAccessToken("tok_a", 900); // explicit sign-in
+    await tab.resolveSession({ refresh: false });
+    const result = await tab.resolveSession({ refresh: true });
+
+    expect(calls).toContain("/auth/refresh");
+    expect(result).toMatchObject({ status: "ready", token: "tok_b" });
+    expect(tab.getSessionState()).toMatchObject({ status: "ready" });
+    expect(storage.getItem(`cellarnode:auth:default:${API}:possibly-committed-at`)).toBeNull();
+  });
 });

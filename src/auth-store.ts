@@ -204,7 +204,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   /** A live credential was confirmed; `sentAt` is when its request left. */
   function recordConfirmedRotation(sentAt: number): void {
     const committed = readTimestamp(possiblyCommittedKey) ?? memoryPossiblyCommittedAt;
-    if (committed !== null && sentAt >= committed) clearUncertainty();
+    // A committed time in the future (clock set back) can never be matched by
+    // a later send; a confirmed credential supersedes it too.
+    if (committed !== null && (sentAt >= committed || committed > Date.now())) clearUncertainty();
     memoryLastConfirmedRotationAt = Math.max(memoryLastConfirmedRotationAt ?? sentAt, sentAt);
     writeTimestamp(
       lastConfirmedRotationKey,
@@ -1165,6 +1167,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   }
 
   function startExplicitToken(token: string, expiresIn: number): void {
+    // An explicit sign-in (OTP/dev login) issues a brand-new refresh cookie:
+    // it always supersedes any uncertainty, whatever its timestamp says.
+    clearUncertainty();
     tokenGeneration += 1;
     const generation = tokenGeneration;
     supersedeExplicitAdoption();
