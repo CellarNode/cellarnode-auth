@@ -123,37 +123,90 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       ? resolutionTimeoutMs
       : DEFAULT_RESOLUTION_TIMEOUT_MS;
 
-  // CEL-2107 — per product family + API origin, so two stores on one page
-  // (or two apps on one origin) never share an uncertainty.
-  const uncertaintyStorageKey = `cellarnode:auth:possibly-committed-at:${productFamily ?? "default"}:${baseUrl}`;
-
-  function sessionStorageOrNull(): Storage | null {
+  // CEL-2107 (0.20.1) — the commit-window uncertainty is SHARED by every
+  // same-origin tab through localStorage: tabs share one refresh cookie jar,
+  // so a rotation possibly committed by tab A (lost response) makes tab B's
+  // old cookie just as dangerous to present after the grace. Keyed per
+  // product family + API ORIGIN (`new URL(baseUrl).origin`, so trailing
+  // slashes or paths never split one API into two keys). Timestamps only,
+  // never a token. Storage failures fall back to memory for this page.
+  const storageOrigin = (() => {
     try {
-      return typeof sessionStorage === "undefined" ? null : sessionStorage;
+      return new URL(baseUrl).origin;
+    } catch {
+      return baseUrl;
+    }
+  })();
+  const storageKeyPrefix = `cellarnode:auth:${productFamily ?? "default"}:${storageOrigin}`;
+  const possiblyCommittedKey = `${storageKeyPrefix}:possibly-committed-at`;
+  const lastConfirmedRotationKey = `${storageKeyPrefix}:last-confirmed-rotation-at`;
+  let memoryPossiblyCommittedAt: number | null = null;
+  let memoryLastConfirmedRotationAt: number | null = null;
+
+  function localStorageOrNull(): Storage | null {
+    try {
+      return typeof localStorage === "undefined" ? null : localStorage;
     } catch {
       return null; // access itself can throw (sandboxed iframe, privacy mode)
     }
   }
 
-  function readPersistedUncertainty(): number | null {
+  function readTimestamp(key: string): number | null {
     try {
-      const raw = sessionStorageOrNull()?.getItem(uncertaintyStorageKey);
+      const raw = localStorageOrNull()?.getItem(key);
       const at = raw ? Number(raw) : Number.NaN;
       return Number.isFinite(at) ? at : null;
     } catch {
-      return null; // unavailable storage: in-memory only
+      return null;
     }
   }
 
-  function setPossiblyCommittedAt(at: number | null): void {
-    possiblyCommittedAt = at;
+  function writeTimestamp(key: string, at: number | null): void {
     try {
-      const storage = sessionStorageOrNull();
-      if (at === null) storage?.removeItem(uncertaintyStorageKey);
-      else storage?.setItem(uncertaintyStorageKey, String(at));
+      const storage = localStorageOrNull();
+      if (at === null) storage?.removeItem(key);
+      else storage?.setItem(key, String(at));
     } catch {
       // Quota/security errors: the in-memory value still guards this page.
     }
+  }
+
+  /**
+   * The send time of a refresh that may have committed server-side (lost
+   * response), unless ANY tab has since confirmed a rotation whose request
+   * was sent after it: that request presented the jar's cookie after the
+   * uncertain send and got a live successor back (a duplicate inside the
+   * grace is idempotent), so the jar holds a live cookie again. Read fresh on
+   * every use, so another tab's writes apply immediately.
+   */
+  function currentUncertainty(): number | null {
+    const committed = readTimestamp(possiblyCommittedKey) ?? memoryPossiblyCommittedAt;
+    if (committed === null) return null;
+    const confirmed = Math.max(
+      readTimestamp(lastConfirmedRotationKey) ?? Number.NEGATIVE_INFINITY,
+      memoryLastConfirmedRotationAt ?? Number.NEGATIVE_INFINITY,
+    );
+    return confirmed >= committed ? null : committed;
+  }
+
+  function recordPossiblyCommitted(sentAt: number): void {
+    if (currentUncertainty() !== null) return; // keep the FIRST (earliest) one
+    memoryPossiblyCommittedAt = sentAt;
+    writeTimestamp(possiblyCommittedKey, sentAt);
+  }
+
+  /** A live credential was confirmed; `sentAt` is when its request left. */
+  function recordConfirmedRotation(sentAt: number): void {
+    memoryLastConfirmedRotationAt = Math.max(memoryLastConfirmedRotationAt ?? sentAt, sentAt);
+    writeTimestamp(
+      lastConfirmedRotationKey,
+      Math.max(readTimestamp(lastConfirmedRotationKey) ?? sentAt, sentAt),
+    );
+  }
+
+  function clearUncertainty(): void {
+    memoryPossiblyCommittedAt = null;
+    writeTimestamp(possiblyCommittedKey, null);
   }
 
   let accessToken: string | null = null;
@@ -187,7 +240,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   // rotation or an explicit new credential ends the uncertainty.
   // Persisted (timestamp ONLY, never a token) so a reload inside the window
   // cannot bypass it: a cold resolve after reload must not present the cookie.
-  let possiblyCommittedAt: number | null = readPersistedUncertainty();
+  // (the possibly-committed uncertainty lives in shared storage; see
+  // currentUncertainty above)
   // Wall-clock expiry of the current access token, when known.
   let accessTokenExpiresAt: number | null = null;
 
@@ -316,14 +370,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     return true;
   }
 
-  function scheduleRefresh(expiresInSeconds: number): void {
+  function scheduleRefresh(expiresInSeconds: number, confirmedSentAt: number = Date.now()): void {
     if (refreshTimer) clearTimeout(refreshTimer);
     accessTokenExpiresAt = Date.now() + expiresInSeconds * 1000;
     renewalOwed = false;
     renewalRetryAttempt = 0;
-    // A rotation was confirmed (or a new credential adopted): nothing is
-    // possibly-committed any more.
-    setPossiblyCommittedAt(null);
+    // A rotation was confirmed (or a new credential adopted): record it for
+    // every tab; it clears any uncertainty that predates its send.
+    recordConfirmedRotation(confirmedSentAt);
     const delay = Math.max((expiresInSeconds - refreshBuffer) * 1000, 0);
     refreshTimer = setTimeout(() => {
       void store.resolveSession({ refresh: true });
@@ -341,7 +395,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // One timer slot shared with the scheduled renewal: a retry replaces it
     // and never stacks on top of it.
     if (refreshTimer) clearTimeout(refreshTimer);
-    if (possiblyCommittedAt !== null) {
+    if (currentUncertainty() !== null) {
       // A rotation may have committed server-side: while the commit window is
       // open, retry ANY failure (timeout or connection error) quickly, inside
       // the backend grace, where a duplicate returns the committed successor.
@@ -495,7 +549,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
     renewalOwed = false;
     renewalRetryAttempt = 0;
-    if (reason !== "session-uncertain") setPossiblyCommittedAt(null);
+    if (reason !== "session-uncertain") clearUncertainty();
     accessTokenExpiresAt = null;
     publishSessionState(
       reason ? { status: "unauthorized", reason } : { status: "unauthorized" },
@@ -773,7 +827,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // present it again (backoff, "Try again", read-401 fallback and a cold
     // resolve all come through here): fail closed locally instead of risking
     // REFRESH_REPLAYED, which would revoke the family on every device.
-    if (possiblyCommittedAt !== null && Date.now() >= possiblyCommittedAt + COMMIT_WINDOW_MS) {
+    const uncertainSince = currentUncertainty();
+    if (uncertainSince !== null && Date.now() >= uncertainSince + COMMIT_WINDOW_MS) {
       return Promise.resolve(failClosedUncertain());
     }
 
@@ -849,9 +904,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           Math.min(requestTimeoutMs, REFRESH_REQUEST_TIMEOUT_MS),
         );
       } catch (error) {
-        if (error instanceof ResolutionTimeoutError && possiblyCommittedAt === null) {
-          setPossiblyCommittedAt(presentedAt);
-        }
+        if (error instanceof ResolutionTimeoutError) recordPossiblyCommitted(presentedAt);
         return failRenewal();
       }
 
@@ -895,7 +948,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       ) {
         return { status: "superseded" };
       }
-      scheduleRefresh(expiresIn);
+      // Confirmed rotation: clears (for every tab) any uncertainty older than
+      // this request's send.
+      scheduleRefresh(expiresIn, presentedAt);
 
       return startIdentityFlight(
         nextGeneration,

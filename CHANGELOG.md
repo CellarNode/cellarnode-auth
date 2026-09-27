@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- The commit-window uncertainty is now shared by every same-origin tab (CEL-2107, residual B). Tabs share one refresh cookie jar, so a rotation that tab A may have committed (lost response) makes tab B's old cookie just as unsafe to present after the backend's grace.
+  - The possibly-committed send time moved from `sessionStorage` to `localStorage`, and every tab's refresh reads it fresh. Tab B presents only inside A's commit window, and after it fails closed as `session-uncertain`.
+  - A shared `last-confirmed-rotation-at` (the SEND time of the confirming refresh, or of an explicit new sign-in) lets any tab's confirmed rotation clear the uncertainty for all tabs. The jar then holds a live cookie, so a recovered tab no longer forces an extra sign-in elsewhere.
+  - The storage key uses `new URL(baseUrl).origin`, so a trailing slash or a path never splits one API into two keys. Timestamps only, never a token. Storage failures fall back to memory.
+
 ## 0.20.0
 
 ### Added
