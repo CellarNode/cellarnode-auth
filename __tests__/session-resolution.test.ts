@@ -825,7 +825,12 @@ describe("atomic session resolution (CEL-1782)", () => {
   it("returns superseded when unauthorized observer installs replacement", async () => {
     const unauthorized = deferred<Response>();
     let identityCalls = 0;
-    global.fetch = vi.fn((_url: string, init?: RequestInit) => {
+    global.fetch = vi.fn((url: string, init?: RequestInit) => {
+      // CEL-2107 — a /me 401 on a confirmed session now asks the refresh
+      // cookie first; refuse it so the session genuinely ends here.
+      if (String(url).endsWith("/auth/refresh")) {
+        return Promise.resolve(response({ code: "UNAUTHORIZED" }, 401));
+      }
       identityCalls += 1;
       if (identityCalls === 2) return unauthorized.promise;
       const token = new Headers(init?.headers).get("Authorization");

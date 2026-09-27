@@ -169,12 +169,28 @@ export type SessionResolution =
  * publishes `resolving`, even when a different account was previously
  * `ready` — a new credential has no confirmed continuity with the old one.
  */
+/**
+ * Why a confirmed session ended, when the store knows (CEL-2107).
+ *
+ * - `account-changed` — a rotation through the shared refresh cookie returned
+ *   a DIFFERENT user than the confirmed one: another tab signed in as someone
+ *   else. The old identity is gone (fail closed, as before), but a valid
+ *   session for the new identity exists, so consumers can reload into the new
+ *   workspace instead of sending the user to sign-in.
+ *
+ * - `session-uncertain` — a refresh may have been committed server-side but
+ *   its response was lost, and the backend's replay grace has passed. The tab
+ *   stops presenting its refresh cookie (that could revoke every device) and
+ *   ends locally; consumers show sign-in.
+ */
+export type SessionEndReason = "account-changed" | "session-uncertain";
+
 export type SessionState =
   | { status: "ready"; token: string; user: AuthUser }
   | { status: "resolving"; token: string | null }
   | { status: "revalidating"; confirmedToken: string; user: AuthUser }
   | { status: "unavailable"; token: string | null }
-  | { status: "unauthorized" };
+  | { status: "unauthorized"; reason?: SessionEndReason };
 
 export type SessionStateListener = (state: SessionState) => void;
 

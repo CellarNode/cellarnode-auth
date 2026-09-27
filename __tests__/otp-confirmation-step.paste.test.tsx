@@ -9,8 +9,17 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OtpConfirmationStep } from "../src/react/otp-confirmation-step.js";
 
-afterEach(() => {
+// input-otp's selection sync schedules setTimeout(0/10/50ms) on paste and
+// selection events and never clears them on unmount. When this (last) test
+// finished, happy-dom was sometimes torn down before the 50ms one fired, and
+// its React state update crashed with "window is not defined" (an unhandled
+// error that fails `npm test` and therefore the publish job). Unmount first,
+// then let those timers run out while the environment still exists.
+const INPUT_OTP_SELECTION_SYNC_MAX_MS = 50;
+
+afterEach(async () => {
   cleanup();
+  await new Promise((resolve) => setTimeout(resolve, INPUT_OTP_SELECTION_SYNC_MAX_MS + 25));
   vi.restoreAllMocks();
 });
 

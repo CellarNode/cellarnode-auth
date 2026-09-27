@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.20.0
+
+### Added
+- `SessionState`'s `unauthorized` status can carry `reason: "account-changed"` (new `SessionEndReason` type, CEL-2107). It is set when a rotation through the shared refresh cookie returns a different user than the confirmed one, which happens when another tab signed in as someone else. The session still fails closed exactly as before (token cleared, `unauthorized`), but consumers can now reload into the new account's workspace instead of sending the user to sign-in. This is additive: the reason is optional and absent on an ordinary sign-out.
+
+- `SessionEndReason` also includes `"session-uncertain"` (CEL-2107). It is published with `unauthorized` when a refresh may have been committed server-side but its response was lost and the backend's replay grace has passed. The tab stops presenting its refresh cookie and ends locally; consumers show sign-in (see Fixed).
+
+### Fixed
+- A renewal that fails on the network no longer turns into a sign-out (CEL-2107). A `/auth/me` 401 on a confirmed session whose token was not just rotated (the access token expired because its renewal could not run) now asks the refresh cookie once before giving up. Only a refused rotation (401/403) publishes `unauthorized`, and a rotation that fails on the network stays `unavailable`. Before, the 401 cleared the session immediately, so a transient outage plus expiry tore a valid session down (the producer landed on /login although the session was still valid).
+- A failed scheduled renewal is retried in the background (CEL-2107). A renewal that fails before a new token is adopted (network, 5xx, malformed response) used to re-arm nothing, so the access token simply expired. It is now retried after about 5s, 15s, 30s, then every 60s while a credential is held. Each delay has ±20% jitter, so tabs that failed together don't retry in lockstep, and a hidden tab defers its retry until it is visible again. Retries share the scheduled renewal's single timer, so the two never stack. They stop on sign-out or when a rotation is refused, and the backoff resets on the next successful rotation.
+- A refresh whose response is lost can no longer revoke the session family (CEL-2107).
+  - The refresh POST has its own 4s deadline, previously the shared 10s resolution timeout.
+  - The backend treats an old cookie presented again within 10s of the rotation as an idempotent duplicate. Outside that window it answers `REFRESH_REPLAYED` and revokes every device in the family.
+  - So after a refresh TIMES OUT (the server may have committed it), the tab keeps presenting its cookie only within 8s of that request's send. It retries any failure in that window after about 1.5s, never deferred for a hidden tab.
+  - If the rotation is still unconfirmed after that, the tab never presents the cookie again: no background retry, no "Try again" renewal, no read-401 fallback, no cold resolve. It fails closed locally instead: the token is cleared and `unauthorized` is published with the new `SessionEndReason` `"session-uncertain"`, so the app shows sign-in.
+  - Signing one tab in again beats revoking every device. A new explicit sign-in or a confirmed rotation ends the uncertainty.
+  - A late timer (for example Chrome's intensive throttling of hidden tabs) hits the same window check and fails closed.
+  - The uncertainty survives a reload. Only the timestamp (never a token) is kept in `sessionStorage`, keyed per product family and API origin, and read when the store is created. So a cold resolve in a reloaded tab can't present the cookie late either; that tab also ends as `session-uncertain`. If storage is unavailable or throws, it falls back to memory.
+- `revalidateSession()` renews while a renewal is owed (CEL-2107). A remint keeps the old expiry, so a "Try again" after a failed renewal restored the session for only a few seconds. When the last renewal failed, or the access token is within `refreshBuffer` of expiry, `revalidateSession()` now rotates through the refresh cookie instead. Otherwise it still remints without spending the refresh cookie (CEL-1853).
+
+### Internal
+- `otp-confirmation-step.paste.test.tsx` no longer crashes teardown intermittently. The real `input-otp` schedules selection-sync timers (0/10/50ms) that it never clears on unmount. The test now unmounts, then waits them out before happy-dom is torn down. Before the fix, 1 in 3 `npm test` runs failed with "window is not defined", which would also fail the publish job.
+
 ## 0.19.0
 
 ### Added
