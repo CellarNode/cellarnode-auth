@@ -325,4 +325,91 @@ describe("renewal recovery (CEL-2107)", () => {
     store.clearAccessToken();
     expect(states.at(-1)).toEqual({ status: "unauthorized" });
   });
+
+  // Review P2 — a refresh the server COMMITTED but whose response was lost
+  // must be re-presented inside the backend's 10s grace (from rotatedAt),
+  // where it is an idempotent duplicate. Outside it is REFRESH_REPLAYED and
+  // the whole family is revoked on every device.
+  function graceBackend() {
+    const GRACE_MS = 10_000;
+    let committedAt: number | null = null;
+    const presentedAt: number[] = [];
+    const refresh: Route = (init) => {
+      presentedAt.push(Date.now());
+      if (committedAt === null) {
+        // First presentation: the server commits the rotation at once but
+        // the response never arrives; only the client's abort ends it.
+        committedAt = Date.now();
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        });
+      }
+      return Promise.resolve(
+        Date.now() - committedAt <= GRACE_MS
+          ? response({ accessToken: "tok_b", expiresIn: 900 }) // idempotent duplicate
+          : response({ code: "REFRESH_REPLAYED" }, 401),
+      );
+    };
+    return { refresh, presentedAt, committedAt: () => committedAt };
+  }
+
+  it("re-presents a timed-out, committed refresh inside the backend grace window", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.999); // worst-case jitter
+    const backend = graceBackend();
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(store);
+
+    await vi.advanceTimersByTimeAsync(840_000); // scheduled renewal: hangs
+    await vi.advanceTimersByTimeAsync(4_000); // client deadline aborts it
+    expect(store.getSessionState().status).toBe("unavailable");
+    await vi.advanceTimersByTimeAsync(2_000); // quick post-timeout retry
+
+    expect(backend.presentedAt).toHaveLength(2);
+    expect(backend.presentedAt[1]! - backend.committedAt()!).toBeLessThanOrEqual(10_000);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
+  it("does not defer the post-timeout retry in a hidden tab (it would leave the grace)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "hidden" }));
+    const backend = graceBackend();
+    routeFetch({ me: () => Promise.resolve(response(userA)), refresh: backend.refresh });
+    const store = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    await readySession(store);
+
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000 + 2_000);
+
+    expect(backend.presentedAt).toHaveLength(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
+  // Review P3 probes.
+  it("a manual refresh and revalidate during the backoff never leave more than one timer", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const { store } = await failedRenewal();
+    await store.resolveSession({ refresh: true });
+    await store.revalidateSession();
+    expect(vi.getTimerCount()).toBeLessThanOrEqual(1);
+  });
+
+  it("a new login resets the backoff", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    let online = false;
+    const { store, refreshes } = await failedRenewal({ online: () => online });
+    await vi.advanceTimersByTimeAsync(5_000); // second failure → next step 15s
+    expect(refreshes()).toBe(2);
+
+    online = true;
+    store.setAccessToken("tok_new", 900);
+    await vi.advanceTimersByTimeAsync(20_000);
+    // No stale backoff retry fires after the new credential was adopted.
+    expect(refreshes()).toBe(2);
+  });
 });

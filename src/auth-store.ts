@@ -21,6 +21,25 @@ import type {
 
 const DEFAULT_ACCESS_TOKEN_TTL = 900;
 const DEFAULT_RESOLUTION_TIMEOUT_MS = 10_000;
+/**
+ * CEL-2107 — the refresh POST is bounded well below the backend's 10s
+ * lost-response grace (`SESSION_FAMILY_GRACE_MS`, measured from `rotatedAt`).
+ * If the server committed the rotation but the response is lost, the next
+ * presentation of the old cookie must land inside that window, where it is an
+ * idempotent duplicate. Outside it, it is `REFRESH_REPLAYED`, which revokes
+ * the whole family on every device.
+ */
+const REFRESH_REQUEST_TIMEOUT_MS = 4_000;
+/** First retry after a TIMED-OUT refresh: abort (≤4s) + this stays inside the grace. */
+const TIMEOUT_RETRY_DELAY_MS = 1_500;
+
+/** A resolution request aborted by its own deadline (the server may have committed). */
+class ResolutionTimeoutError extends Error {
+  constructor() {
+    super("Session resolution request timed out");
+    this.name = "ResolutionTimeoutError";
+  }
+}
 
 const DEV_LOGIN_MESSAGES = {
   "test-endpoints-disabled":
@@ -118,6 +137,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   // expiry), and a bounded backoff keeps retrying in the background.
   let renewalOwed = false;
   let renewalRetryAttempt = 0;
+  // The last renewal attempt was aborted by its deadline: the server may have
+  // committed the rotation (see REFRESH_REQUEST_TIMEOUT_MS).
+  let renewalTimedOut = false;
   // Wall-clock expiry of the current access token, when known.
   let accessTokenExpiresAt: number | null = null;
 
@@ -251,6 +273,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     accessTokenExpiresAt = Date.now() + expiresInSeconds * 1000;
     renewalOwed = false;
     renewalRetryAttempt = 0;
+    renewalTimedOut = false;
     const delay = Math.max((expiresInSeconds - refreshBuffer) * 1000, 0);
     refreshTimer = setTimeout(() => {
       void store.resolveSession({ refresh: true });
@@ -268,6 +291,20 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // One timer slot shared with the scheduled renewal: a retry replaces it
     // and never stacks on top of it.
     if (refreshTimer) clearTimeout(refreshTimer);
+    if (renewalTimedOut) {
+      // A timed-out rotation may have committed server-side: re-present the
+      // cookie quickly, inside the backend grace, where it is an idempotent
+      // duplicate returning the committed successor. Not deferred for a
+      // hidden tab: waiting would leave the grace and replay the family.
+      renewalTimedOut = false;
+      renewalRetryAttempt += 1;
+      const quick = TIMEOUT_RETRY_DELAY_MS + Math.round(Math.random() * 250);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        if (accessToken !== null && renewalOwed) void store.resolveSession({ refresh: true });
+      }, quick);
+      return;
+    }
     const base =
       RENEWAL_RETRY_DELAYS_MS[
         Math.min(renewalRetryAttempt, RENEWAL_RETRY_DELAYS_MS.length - 1)
@@ -316,13 +353,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
   function withResolutionTimeout<T>(
     operation: (signal: AbortSignal) => Promise<T>,
+    timeoutMs: number = requestTimeoutMs,
   ): Promise<T> {
     const controller = new AbortController();
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         controller.abort();
-        reject(new Error("Session resolution request timed out"));
-      }, requestTimeoutMs);
+        reject(new ResolutionTimeoutError());
+      }, timeoutMs);
       let pending: Promise<T>;
       try {
         pending = operation(controller.signal);
@@ -347,6 +385,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   function fetchResolutionResponse(
     path: string,
     init: RequestInit,
+    timeoutMs: number = requestTimeoutMs,
   ): Promise<{ response: Response; raw: unknown }> {
     return withResolutionTimeout(async (signal) => {
       const response = await fetchAuthRequest(baseUrl, path, {
@@ -355,7 +394,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       });
       const raw = response.ok ? await response.json() : null;
       return { response, raw };
-    });
+    }, timeoutMs);
   }
 
   async function fetchIdentity(token: string): Promise<IdentityRead> {
@@ -404,6 +443,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
     renewalOwed = false;
     renewalRetryAttempt = 0;
+    renewalTimedOut = false;
     accessTokenExpiresAt = null;
     publishSessionState(
       reason ? { status: "unauthorized", reason } : { status: "unauthorized" },
@@ -709,7 +749,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     void (async (): Promise<SessionResolution> => {
       let result: { response: Response; raw: unknown };
       try {
-        result = await fetchResolutionResponse(refreshPath, {
+        result = await fetchResolutionResponse(
+          refreshPath,
+          {
           method: "POST",
           credentials: "include",
           headers: {
@@ -722,8 +764,11 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
               ? { [SESSION_FAMILY_HEADER]: productFamily }
               : {}),
           },
-        });
-      } catch {
+          },
+          Math.min(requestTimeoutMs, REFRESH_REQUEST_TIMEOUT_MS),
+        );
+      } catch (error) {
+        if (error instanceof ResolutionTimeoutError) renewalTimedOut = true;
         return failRenewal();
       }
 
