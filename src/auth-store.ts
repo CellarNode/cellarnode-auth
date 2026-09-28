@@ -1013,6 +1013,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       return markUnavailable(refreshGeneration, accessToken);
     };
 
+    // CEL-2123 — a new send supersedes the previous refresh's late-offline
+    // watch: it can never record for an already-resolved refresh.
+    cancelLateOfflineWatch();
     const presentedAt = Date.now();
     // CEL-2123 (review P2) — whether the browser had a network at send time.
     const onlineAtSend = !browserOffline();

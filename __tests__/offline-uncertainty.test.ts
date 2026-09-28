@@ -412,6 +412,44 @@ describe("a late `offline` after a refresh TypeError (CEL-2123 review P3)", () =
     expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
   });
 
+  it("cleanup: a sign-out during the watch means a later `offline` records nothing", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: 1_000 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // TypeError while online; watch starts
+    store.clearAccessToken(); // sign-out at +0s, inside the watch
+    store.setAccessToken("tok_new", 900); // new sign-in
+    await vi.advanceTimersByTimeAsync(1_500); // `offline` fires at +1s
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // A stale watch would have armed the hold and forced a rotation of the
+    // NEW session on `online`: only the original failed send was presented.
+    expect(backend.presentedAt).toHaveLength(1);
+  });
+
+  it("cleanup: a new send ends the previous refresh's watch", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: 1_500 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // TypeError while online; watch starts
+    // A new send (e.g. "Try again") within the watch: it succeeds online.
+    const retried = await store.resolveSession({ refresh: true });
+    expect(retried.status).toBe("ready");
+    await vi.advanceTimersByTimeAsync(2_000); // the old refresh's `offline` fires at +1.5s
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Nothing acted on the resolved refresh: no hold, so no forced rotation
+    // on `online` (the failed send plus the successful retry only).
+    expect(backend.presentedAt).toHaveLength(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
   it("no `offline` within 2s is not recorded: the ordinary backoff retries and recovers", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0.5);
