@@ -1,0 +1,21 @@
+__tests__/offline-uncertainty.test.ts
+  s_4a31f68fd8a5ed::t_a8aa9a0b001510 415-452
+src/auth-store.ts
+  s_4a31f68fd8a5ed::t_d0afc85243708e 1016-1018
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e205414caa71a4bc54ab3e8e4ff3d71b04e6f1f6",
+  "prompts": {},
+  "sessions": {
+    "s_4a31f68fd8a5ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "13f2286e-6849-47b9-9a27-b946530ed76b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
