@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.3
+
+### Fixed
+- **A late `offline` after a refresh TypeError now counts as a drop during the refresh** (CEL-2123, review P3). Browsers can flip `navigator.onLine` a moment after the fetch rejects (about 50ms in the review probe). 0.20.2 only recognised a drop when the device was already offline at the moment the error arrived, so such a drop went unrecorded, and the next retry could re-present a committed cookie (`REFRESH_REPLAYED`).
+  - After a network `TypeError` while still online, the store now watches for the `offline` event for `LATE_OFFLINE_WATCH_MS` (2s, below the first backoff retry of at least 4s).
+  - If `offline` fires, it records a possibly-committed rotation, drops the pending backoff retry and applies the 0.20.2 offline hold.
+  - No event within 2s keeps the ordinary backoff.
+  - The watch ends when its timer expires, on a successful rotation, and on a sign-out or new sign-in.
+
 ## 0.20.2
 
 ### Fixed

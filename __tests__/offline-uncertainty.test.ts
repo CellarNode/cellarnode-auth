@@ -310,3 +310,120 @@ describe("a network drop mid-refresh (CEL-2123 review P2)", () => {
     expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
   });
 });
+
+/**
+ * CEL-2123 (review P3) — the browser can report `offline` a moment AFTER the
+ * refresh fetch rejects. A network TypeError while still online is watched
+ * for LATE_OFFLINE_WATCH_MS (2s): a late `offline` counts as a drop during the
+ * refresh; no event keeps the ordinary backoff.
+ */
+function lateDropBackend(opts: { commitFirst: boolean; offlineAfterMs: number | null }) {
+  let online = true;
+  const win = new EventTarget();
+  vi.stubGlobal("window", win);
+  vi.stubGlobal("navigator", {
+    get onLine() {
+      return online;
+    },
+  });
+  const presentedAt: number[] = [];
+  let committedAt: number | null = null;
+  let replayed = false;
+  global.fetch = vi.fn((url: string) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/auth/me") {
+      return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
+    }
+    if (path === "/auth/refresh") {
+      if (!online) return Promise.reject(new TypeError("Failed to fetch"));
+      presentedAt.push(Date.now());
+      if (presentedAt.length === 1) {
+        if (opts.commitFirst) committedAt = Date.now();
+        if (opts.offlineAfterMs !== null) {
+          setTimeout(() => {
+            online = false;
+            win.dispatchEvent(new Event("offline"));
+          }, opts.offlineAfterMs);
+        }
+        // Rejects while navigator.onLine is still true.
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (committedAt !== null && Date.now() - committedAt > 10_000) {
+        replayed = true;
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: vi.fn().mockResolvedValue({ code: "REFRESH_REPLAYED" }),
+        } as unknown as Response);
+      }
+      return Promise.resolve(ok({ accessToken: "tok_b", expiresIn: 900 }));
+    }
+    return Promise.reject(new TypeError(`unrouted ${path}`));
+  }) as typeof fetch;
+  return {
+    presentedAt,
+    replayed: () => replayed,
+    goOnline: () => {
+      online = true;
+      win.dispatchEvent(new Event("online"));
+    },
+  };
+}
+
+describe("a late `offline` after a refresh TypeError (CEL-2123 review P3)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("offline 50ms after the TypeError is recorded: held, then fails closed past the window without REFRESH_REPLAYED", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: true, offlineAfterMs: 50 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal: committed, TypeError while online
+    await vi.advanceTimersByTimeAsync(120_000); // the late `offline` fired; two minutes offline
+    expect(store.getSessionState().status).toBe("unavailable");
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(backend.presentedAt).toHaveLength(1);
+    expect(backend.replayed()).toBe(false);
+    expect(store.getSessionState()).toMatchObject({
+      status: "unauthorized",
+      reason: "session-uncertain",
+    });
+  });
+
+  it("an `offline` AFTER the 2s watch is not recorded: back online, the retry presents normally", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: 3_000 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // transient TypeError; offline only at +3s
+    await vi.advanceTimersByTimeAsync(60_000); // well past the 8s window, still offline
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(120_000); // the backoff retry fires online
+
+    expect(backend.presentedAt.length).toBeGreaterThanOrEqual(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
+  it("no `offline` within 2s is not recorded: the ordinary backoff retries and recovers", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: null });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal: transient TypeError, still online
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(backend.presentedAt.length).toBeGreaterThanOrEqual(2);
+    // Not the 1.5s possibly-committed quick retry: the normal >= 4s backoff.
+    expect(backend.presentedAt[1]! - backend.presentedAt[0]!).toBeGreaterThanOrEqual(4_000);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+});
