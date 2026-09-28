@@ -310,3 +310,222 @@ describe("a network drop mid-refresh (CEL-2123 review P2)", () => {
     expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
   });
 });
+
+/**
+ * CEL-2123 (review P3) — the browser can report `offline` a moment AFTER the
+ * refresh fetch rejects. A network TypeError while still online is watched
+ * for LATE_OFFLINE_WATCH_MS (2s): a late `offline` counts as a drop during the
+ * refresh; no event keeps the ordinary backoff.
+ */
+function lateDropBackend(opts: { commitFirst: boolean; offlineAfterMs: number | null }) {
+  let online = true;
+  const win = new EventTarget();
+  vi.stubGlobal("window", win);
+  vi.stubGlobal("navigator", {
+    get onLine() {
+      return online;
+    },
+  });
+  const presentedAt: number[] = [];
+  let committedAt: number | null = null;
+  let replayed = false;
+  global.fetch = vi.fn((url: string) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/auth/me") {
+      return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
+    }
+    if (path === "/auth/refresh") {
+      if (!online) return Promise.reject(new TypeError("Failed to fetch"));
+      presentedAt.push(Date.now());
+      if (presentedAt.length === 1) {
+        if (opts.commitFirst) committedAt = Date.now();
+        if (opts.offlineAfterMs !== null) {
+          setTimeout(() => {
+            online = false;
+            win.dispatchEvent(new Event("offline"));
+          }, opts.offlineAfterMs);
+        }
+        // Rejects while navigator.onLine is still true.
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (committedAt !== null && Date.now() - committedAt > 10_000) {
+        replayed = true;
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: vi.fn().mockResolvedValue({ code: "REFRESH_REPLAYED" }),
+        } as unknown as Response);
+      }
+      return Promise.resolve(ok({ accessToken: "tok_b", expiresIn: 900 }));
+    }
+    return Promise.reject(new TypeError(`unrouted ${path}`));
+  }) as typeof fetch;
+  return {
+    presentedAt,
+    replayed: () => replayed,
+    goOnline: () => {
+      online = true;
+      win.dispatchEvent(new Event("online"));
+    },
+  };
+}
+
+describe("a late `offline` after a refresh TypeError (CEL-2123 review P3)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("offline 50ms after the TypeError is recorded: held, then fails closed past the window without REFRESH_REPLAYED", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: true, offlineAfterMs: 50 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal: committed, TypeError while online
+    await vi.advanceTimersByTimeAsync(120_000); // the late `offline` fired; two minutes offline
+    expect(store.getSessionState().status).toBe("unavailable");
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(backend.presentedAt).toHaveLength(1);
+    expect(backend.replayed()).toBe(false);
+    expect(store.getSessionState()).toMatchObject({
+      status: "unauthorized",
+      reason: "session-uncertain",
+    });
+  });
+
+  it("an `offline` AFTER the 2s watch is not recorded: back online, the retry presents normally", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: 3_000 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // transient TypeError; offline only at +3s
+    await vi.advanceTimersByTimeAsync(60_000); // well past the 8s window, still offline
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(120_000); // the backoff retry fires online
+
+    expect(backend.presentedAt.length).toBeGreaterThanOrEqual(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
+  it("cleanup: a sign-out during the watch means a later `offline` records nothing", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: 1_000 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // TypeError while online; watch starts
+    store.clearAccessToken(); // sign-out at +0s, inside the watch
+    store.setAccessToken("tok_new", 900); // new sign-in
+    await vi.advanceTimersByTimeAsync(1_500); // `offline` fires at +1s
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // A stale watch would have armed the hold and forced a rotation of the
+    // NEW session on `online`: only the original failed send was presented.
+    expect(backend.presentedAt).toHaveLength(1);
+  });
+
+  it("cleanup: a new send ends the previous refresh's watch", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: 1_500 });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // TypeError while online; watch starts
+    // A new send (e.g. "Try again") within the watch: it succeeds online.
+    const retried = await store.resolveSession({ refresh: true });
+    expect(retried.status).toBe("ready");
+    await vi.advanceTimersByTimeAsync(2_000); // the old refresh's `offline` fires at +1.5s
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Nothing acted on the resolved refresh: no hold, so no forced rotation
+    // on `online` (the failed send plus the successful retry only).
+    expect(backend.presentedAt).toHaveLength(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+
+    // (review P3 #1) The fresh renewal timer survived the stale `offline`:
+    // the next rotation happens on schedule, not earlier and not never.
+    await vi.advanceTimersByTimeAsync(837_000); // 839s after the success
+    expect(backend.presentedAt).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(backend.presentedAt).toHaveLength(3);
+    expect(store.getSessionState().status).toBe("ready");
+  });
+
+  it("a stale in-flight refresh that dies after a new sign-in never watches for the new session (review P3 #2)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    let online = true;
+    const win = new EventTarget();
+    vi.stubGlobal("window", win);
+    vi.stubGlobal("navigator", {
+      get onLine() {
+        return online;
+      },
+    });
+    const presentedAt: number[] = [];
+    let killFirst: (() => void) | null = null;
+    global.fetch = vi.fn((url: string) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/auth/me") {
+        return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (path === "/auth/refresh") {
+        if (!online) return Promise.reject(new TypeError("Failed to fetch"));
+        presentedAt.push(Date.now());
+        if (presentedAt.length === 1) {
+          // In flight until the test kills it with a TypeError (still online).
+          return new Promise<Response>((_resolve, reject) => {
+            killFirst = () => reject(new TypeError("Failed to fetch"));
+          });
+        }
+        return Promise.resolve(ok({ accessToken: "tok_c", expiresIn: 900 }));
+      }
+      return Promise.reject(new TypeError(`unrouted ${path}`));
+    }) as typeof fetch;
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal in flight
+    expect(presentedAt).toHaveLength(1);
+    store.clearAccessToken();
+    store.setAccessToken("tok_new", 900); // a new sign-in supersedes it
+    await vi.advanceTimersByTimeAsync(0);
+    killFirst!(); // the old request dies with a TypeError, still online
+    await vi.advanceTimersByTimeAsync(50);
+    online = false;
+    win.dispatchEvent(new Event("offline"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    online = true;
+    win.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // No hold, no forced rotation of the new session on `online`.
+    expect(presentedAt).toHaveLength(1);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_new" });
+    // The new session's own renewal timer is intact and fires on schedule.
+    await vi.advanceTimersByTimeAsync(840_000);
+    expect(presentedAt).toHaveLength(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_c" });
+  });
+
+  it("no `offline` within 2s is not recorded: the ordinary backoff retries and recovers", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = lateDropBackend({ commitFirst: false, offlineAfterMs: null });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal: transient TypeError, still online
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(backend.presentedAt.length).toBeGreaterThanOrEqual(2);
+    // Not the 1.5s possibly-committed quick retry: the normal >= 4s backoff.
+    expect(backend.presentedAt[1]! - backend.presentedAt[0]!).toBeGreaterThanOrEqual(4_000);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+});

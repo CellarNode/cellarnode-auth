@@ -108,6 +108,14 @@ function copyResolution(resolution: SessionResolution): SessionResolution {
 
 /** CEL-2107 — backoff between background renewal retries after a failure. */
 const RENEWAL_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000] as const;
+/**
+ * CEL-2123 (review P3) — after a refresh fails with a network TypeError while
+ * the browser still reports online, watch this long for a late `offline`
+ * event (the browser can flip `navigator.onLine` just after the fetch
+ * rejects). Kept below the first backoff retry (5s -20% jitter = 4s), so the
+ * verdict is in before the next presentation.
+ */
+const LATE_OFFLINE_WATCH_MS = 2_000;
 
 export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   const {
@@ -551,6 +559,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     if (generation !== tokenGeneration) return false;
     // CEL-2123 — the session this hold was deciding for is over.
     cancelOnlineResume();
+    cancelLateOfflineWatch();
     tokenGeneration += 1;
     const clearedGeneration = tokenGeneration;
     accessToken = null;
@@ -863,6 +872,45 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     target.addEventListener("online", onlineResume);
   }
 
+  let lateOfflineWatch: (() => void) | null = null;
+  /**
+   * CEL-2123 (review P3) — a network TypeError while still online may be the
+   * first sign of a drop the browser has not reported yet. If `offline` fires
+   * within LATE_OFFLINE_WATCH_MS, treat the request like one that failed
+   * offline: it may have committed, so record it and hold.
+   */
+  function watchForLateOffline(sentAt: number, generation: number): void {
+    cancelLateOfflineWatch();
+    const target = typeof window === "undefined" ? null : window;
+    if (!target || typeof target.addEventListener !== "function") return;
+    const onOffline = () => {
+      cancelLateOfflineWatch();
+      // A newer session owns the timers and the uncertainty record now.
+      if (generation !== tokenGeneration) return;
+      recordPossiblyCommitted(sentAt);
+      // The pending backoff retry would only fail offline; hold instead.
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+      renewalOwed = true;
+      holdUntilOnline();
+    };
+    const timer = setTimeout(cancelLateOfflineWatch, LATE_OFFLINE_WATCH_MS);
+    target.addEventListener("offline", onOffline);
+    lateOfflineWatch = () => {
+      clearTimeout(timer);
+      target.removeEventListener("offline", onOffline);
+    };
+  }
+
+  function cancelLateOfflineWatch(): void {
+    if (!lateOfflineWatch) return;
+    const cancel = lateOfflineWatch;
+    lateOfflineWatch = null;
+    cancel();
+  }
+
   /** A new session or a sign-out owes no decision on the old rotation. */
   function cancelOnlineResume(): void {
     holdOwed = false;
@@ -967,6 +1015,9 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       return markUnavailable(refreshGeneration, accessToken);
     };
 
+    // CEL-2123 — a new send supersedes the previous refresh's late-offline
+    // watch: it can never record for an already-resolved refresh.
+    cancelLateOfflineWatch();
     const presentedAt = Date.now();
     // CEL-2123 (review P2) — whether the browser had a network at send time.
     const onlineAtSend = !browserOffline();
@@ -1001,6 +1052,15 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           // the offline hold covers it. A TypeError when the device was
           // ALREADY offline at send stays "not delivered" (it never left).
           recordPossiblyCommitted(presentedAt);
+        } else if (
+          error instanceof TypeError &&
+          onlineAtSend &&
+          refreshGeneration === tokenGeneration
+        ) {
+          // CEL-2123 (review P3) — still online at catch: the browser may
+          // report the drop a moment later. A superseded refresh (a newer
+          // sign-in or send took over) never starts a watch.
+          watchForLateOffline(presentedAt, refreshGeneration);
         }
         return failRenewal();
       }
@@ -1047,6 +1107,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       }
       // Confirmed rotation: clears (for every tab) any uncertainty older than
       // this request's send.
+      cancelLateOfflineWatch();
       scheduleRefresh(expiresIn, presentedAt);
 
       return startIdentityFlight(
@@ -1248,6 +1309,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     clearUncertainty();
     // CEL-2123 — and any held decision about the old cookie.
     cancelOnlineResume();
+    cancelLateOfflineWatch();
     tokenGeneration += 1;
     const generation = tokenGeneration;
     supersedeExplicitAdoption();
