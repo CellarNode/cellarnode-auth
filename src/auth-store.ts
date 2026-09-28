@@ -879,12 +879,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
    * within LATE_OFFLINE_WATCH_MS, treat the request like one that failed
    * offline: it may have committed, so record it and hold.
    */
-  function watchForLateOffline(sentAt: number): void {
+  function watchForLateOffline(sentAt: number, generation: number): void {
     cancelLateOfflineWatch();
     const target = typeof window === "undefined" ? null : window;
     if (!target || typeof target.addEventListener !== "function") return;
     const onOffline = () => {
       cancelLateOfflineWatch();
+      // A newer session owns the timers and the uncertainty record now.
+      if (generation !== tokenGeneration) return;
       recordPossiblyCommitted(sentAt);
       // The pending backoff retry would only fail offline; hold instead.
       if (refreshTimer) {
@@ -1050,10 +1052,15 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           // the offline hold covers it. A TypeError when the device was
           // ALREADY offline at send stays "not delivered" (it never left).
           recordPossiblyCommitted(presentedAt);
-        } else if (error instanceof TypeError && onlineAtSend) {
+        } else if (
+          error instanceof TypeError &&
+          onlineAtSend &&
+          refreshGeneration === tokenGeneration
+        ) {
           // CEL-2123 (review P3) — still online at catch: the browser may
-          // report the drop a moment later.
-          watchForLateOffline(presentedAt);
+          // report the drop a moment later. A superseded refresh (a newer
+          // sign-in or send took over) never starts a watch.
+          watchForLateOffline(presentedAt, refreshGeneration);
         }
         return failRenewal();
       }

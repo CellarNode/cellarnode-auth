@@ -448,6 +448,70 @@ describe("a late `offline` after a refresh TypeError (CEL-2123 review P3)", () =
     // on `online` (the failed send plus the successful retry only).
     expect(backend.presentedAt).toHaveLength(2);
     expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+
+    // (review P3 #1) The fresh renewal timer survived the stale `offline`:
+    // the next rotation happens on schedule, not earlier and not never.
+    await vi.advanceTimersByTimeAsync(837_000); // 839s after the success
+    expect(backend.presentedAt).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(backend.presentedAt).toHaveLength(3);
+    expect(store.getSessionState().status).toBe("ready");
+  });
+
+  it("a stale in-flight refresh that dies after a new sign-in never watches for the new session (review P3 #2)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    let online = true;
+    const win = new EventTarget();
+    vi.stubGlobal("window", win);
+    vi.stubGlobal("navigator", {
+      get onLine() {
+        return online;
+      },
+    });
+    const presentedAt: number[] = [];
+    let killFirst: (() => void) | null = null;
+    global.fetch = vi.fn((url: string) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/auth/me") {
+        return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (path === "/auth/refresh") {
+        if (!online) return Promise.reject(new TypeError("Failed to fetch"));
+        presentedAt.push(Date.now());
+        if (presentedAt.length === 1) {
+          // In flight until the test kills it with a TypeError (still online).
+          return new Promise<Response>((_resolve, reject) => {
+            killFirst = () => reject(new TypeError("Failed to fetch"));
+          });
+        }
+        return Promise.resolve(ok({ accessToken: "tok_c", expiresIn: 900 }));
+      }
+      return Promise.reject(new TypeError(`unrouted ${path}`));
+    }) as typeof fetch;
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal in flight
+    expect(presentedAt).toHaveLength(1);
+    store.clearAccessToken();
+    store.setAccessToken("tok_new", 900); // a new sign-in supersedes it
+    await vi.advanceTimersByTimeAsync(0);
+    killFirst!(); // the old request dies with a TypeError, still online
+    await vi.advanceTimersByTimeAsync(50);
+    online = false;
+    win.dispatchEvent(new Event("offline"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    online = true;
+    win.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // No hold, no forced rotation of the new session on `online`.
+    expect(presentedAt).toHaveLength(1);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_new" });
+    // The new session's own renewal timer is intact and fires on schedule.
+    await vi.advanceTimersByTimeAsync(840_000);
+    expect(presentedAt).toHaveLength(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_c" });
   });
 
   it("no `offline` within 2s is not recorded: the ordinary backoff retries and recovers", async () => {
