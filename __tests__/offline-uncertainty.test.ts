@@ -129,3 +129,59 @@ describe("offline during a possibly-committed rotation (CEL-2123)", () => {
     expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
   });
 });
+
+describe("offline hold lifecycle (CEL-2123 review P3)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("a cold hold (reload offline inside the uncertainty) still decides on `online`", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    // The uncertainty survives a reload through the shared localStorage.
+    const map = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+      removeItem: (k: string) => void map.delete(k),
+      clear: () => map.clear(),
+      key: () => null,
+      get length() {
+        return map.size;
+      },
+    } as Storage);
+    const { refreshCalls, goOnline } = setup();
+    const store = await readyStore();
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000); // possibly committed, offline
+
+    // A reload: a new store with no in-memory token, while still offline.
+    const cold = createAuthStore({ baseUrl: "http://localhost:4000", refreshBuffer: 60 });
+    expect((await cold.resolveSession({ refresh: true })).status).not.toBe("ready");
+    await vi.advanceTimersByTimeAsync(60_000); // past the window
+    goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(cold.getSessionState()).toMatchObject({ status: "unauthorized", reason: "session-uncertain" });
+    expect(refreshCalls).toHaveLength(1);
+    void store;
+  });
+
+  it("a sign-out and new sign-in while offline cancel the hold: the new session is not rotated on `online`", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const { refreshCalls, goOnline } = setup();
+    const store = await readyStore();
+    await vi.advanceTimersByTimeAsync(840_000 + 4_000 + 10_000); // held, offline
+
+    store.clearAccessToken(); // sign-out
+    store.setAccessToken("tok_new", 900); // sign-in (supersedes the uncertainty)
+    await vi.advanceTimersByTimeAsync(0);
+    goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Only the original hung renewal: nothing rotated the new session.
+    expect(refreshCalls).toHaveLength(1);
+  });
+});

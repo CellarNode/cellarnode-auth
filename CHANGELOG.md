@@ -8,6 +8,7 @@
   - It decides once, on the browser's `online` event. Back inside the commit window, it re-presents (the backend grace makes that idempotent). Past it, it still fails closed as before.
   - Being offline is never treated as proof that the timed-out request was not delivered: that could re-present a committed cookie outside the grace, which is `REFRESH_REPLAYED` and signs out every device in the family. The sign-out after a genuinely ambiguous lost response is deferred until the device is back online, not removed.
   - Online behaviour is unchanged.
+  - The hold also resumes for a cold store (a reload while offline inside the uncertainty, with no in-memory token). A sign-out or a new sign-in cancels a pending hold, so the new session is not force-rotated when the device comes back online.
 
 ## 0.20.1
 

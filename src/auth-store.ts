@@ -848,9 +848,21 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     onlineResume = () => {
       target.removeEventListener("online", onlineResume!);
       onlineResume = null;
-      if (accessToken !== null) void store.resolveSession({ refresh: true });
+      // Also for a cold hold (a reload offline inside the uncertainty, no
+      // in-memory token): the decision is still owed. A sign-out or a new
+      // sign-in cancels the hold first (cancelOnlineResume).
+      void store.resolveSession({ refresh: true });
     };
     target.addEventListener("online", onlineResume);
+  }
+
+  /** A new session or a sign-out owes no decision on the old rotation. */
+  function cancelOnlineResume(): void {
+    if (!onlineResume) return;
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("online", onlineResume);
+    }
+    onlineResume = null;
   }
 
   function failClosedUncertain(): SessionResolution {
@@ -1259,10 +1271,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     hasAccessToken: () => accessToken !== null,
 
     setAccessToken(token, expiresIn) {
+      cancelOnlineResume();
       startExplicitToken(token, expiresIn);
     },
 
     clearAccessToken() {
+      cancelOnlineResume();
       supersedeExplicitAdoption();
       if (clearCurrentGeneration(tokenGeneration)) {
         const clearedGeneration = tokenGeneration;
