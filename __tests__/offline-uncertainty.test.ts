@@ -185,3 +185,128 @@ describe("offline hold lifecycle (CEL-2123 review P3)", () => {
     expect(refreshCalls).toHaveLength(1);
   });
 });
+
+/**
+ * CEL-2123 (review P2) — the network drops WHILE the refresh is in flight:
+ * the server commits the rotation, the client sees a fast TypeError, not a
+ * timeout. Online at send + offline at catch counts as possibly committed,
+ * so the offline hold covers it. A device already offline at send is
+ * unchanged: the request never left, nothing is recorded.
+ */
+function committingBackend(opts: { dropOnFirstPresentation: boolean }) {
+  let online = true;
+  const win = new EventTarget();
+  vi.stubGlobal("window", win);
+  vi.stubGlobal("navigator", {
+    get onLine() {
+      return online;
+    },
+  });
+  const presentedAt: number[] = [];
+  let committedAt: number | null = null;
+  let replayed = false;
+  global.fetch = vi.fn((url: string) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/auth/me") {
+      return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
+    }
+    if (path === "/auth/refresh") {
+      if (!online) return Promise.reject(new TypeError("Failed to fetch"));
+      presentedAt.push(Date.now());
+      if (committedAt === null && opts.dropOnFirstPresentation) {
+        // The server rotates, then the connection dies before the response.
+        committedAt = Date.now();
+        online = false;
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (committedAt === null) {
+        // An ordinary first rotation that is answered.
+        committedAt = Date.now();
+        return Promise.resolve(ok({ accessToken: "tok_b", expiresIn: 900 }));
+      }
+      if (Date.now() - committedAt > 10_000) {
+        replayed = true;
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: vi.fn().mockResolvedValue({ code: "REFRESH_REPLAYED" }),
+        } as unknown as Response);
+      }
+      return Promise.resolve(ok({ accessToken: "tok_b", expiresIn: 900 }));
+    }
+    return Promise.reject(new TypeError(`unrouted ${path}`));
+  }) as typeof fetch;
+  return {
+    presentedAt,
+    replayed: () => replayed,
+    goOnline: () => {
+      online = true;
+      win.dispatchEvent(new Event("online"));
+    },
+    goOffline: () => {
+      online = false;
+    },
+  };
+}
+
+describe("a network drop mid-refresh (CEL-2123 review P2)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("holds while offline and fails closed past the window without presenting (no REFRESH_REPLAYED)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = committingBackend({ dropOnFirstPresentation: true });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal: committed, then TypeError offline
+    await vi.advanceTimersByTimeAsync(120_000); // two minutes offline
+    expect(store.getSessionState().status).toBe("unavailable");
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(backend.presentedAt).toHaveLength(1);
+    expect(backend.replayed()).toBe(false);
+    expect(store.getSessionState()).toMatchObject({
+      status: "unauthorized",
+      reason: "session-uncertain",
+    });
+  });
+
+  it("recovers when back online inside the window (the duplicate lands in the grace)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = committingBackend({ dropOnFirstPresentation: true });
+    const store = await readyStore();
+
+    await vi.advanceTimersByTimeAsync(840_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(backend.presentedAt).toHaveLength(2);
+    expect(backend.replayed()).toBe(false);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
+  it("offline AT SEND is unchanged: nothing recorded, the next retry presents normally", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const backend = committingBackend({ dropOnFirstPresentation: false });
+    const store = await readyStore();
+    backend.goOffline(); // offline BEFORE the renewal is sent
+
+    await vi.advanceTimersByTimeAsync(840_000); // renewal: TypeError, it never left
+    await vi.advanceTimersByTimeAsync(60_000); // well past any 8s window
+    expect(backend.presentedAt).toHaveLength(0);
+    backend.goOnline();
+    await vi.advanceTimersByTimeAsync(120_000); // the backoff retry fires online
+
+    expect(backend.presentedAt.length).toBeGreaterThanOrEqual(1);
+    expect(backend.replayed()).toBe(false);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+});

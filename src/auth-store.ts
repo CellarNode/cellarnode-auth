@@ -549,6 +549,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     reason?: SessionEndReason,
   ): boolean {
     if (generation !== tokenGeneration) return false;
+    // CEL-2123 — the session this hold was deciding for is over.
+    cancelOnlineResume();
     tokenGeneration += 1;
     const clearedGeneration = tokenGeneration;
     accessToken = null;
@@ -834,6 +836,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   }
 
   let onlineResume: (() => void) | null = null;
+  /** A possibly-committed rotation is held undecided until `online`. */
+  let holdOwed = false;
   /**
    * CEL-2123 — while offline with a possibly-committed rotation, the tab can
    * neither confirm nor safely present the refresh cookie, and signing the
@@ -842,15 +846,18 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
    * (the backend grace makes that idempotent); past it, it fails closed.
    */
   function holdUntilOnline(): void {
+    holdOwed = true;
     if (onlineResume) return;
     const target = typeof window === "undefined" ? null : window;
     if (!target || typeof target.addEventListener !== "function") return;
     onlineResume = () => {
       target.removeEventListener("online", onlineResume!);
       onlineResume = null;
-      // Also for a cold hold (a reload offline inside the uncertainty, no
-      // in-memory token): the decision is still owed. A sign-out or a new
-      // sign-in cancels the hold first (cancelOnlineResume).
+      // Keyed off the owed decision, not the in-memory token, so a cold hold
+      // (a reload offline inside the uncertainty) also decides. A sign-out or
+      // a new sign-in clears it first (cancelOnlineResume).
+      if (!holdOwed) return;
+      holdOwed = false;
       void store.resolveSession({ refresh: true });
     };
     target.addEventListener("online", onlineResume);
@@ -858,6 +865,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
   /** A new session or a sign-out owes no decision on the old rotation. */
   function cancelOnlineResume(): void {
+    holdOwed = false;
     if (!onlineResume) return;
     if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
       window.removeEventListener("online", onlineResume);
@@ -960,6 +968,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     };
 
     const presentedAt = Date.now();
+    // CEL-2123 (review P2) — whether the browser had a network at send time.
+    const onlineAtSend = !browserOffline();
     void (async (): Promise<SessionResolution> => {
       let result: { response: Response; raw: unknown };
       try {
@@ -982,7 +992,16 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           Math.min(requestTimeoutMs, REFRESH_REQUEST_TIMEOUT_MS),
         );
       } catch (error) {
-        if (error instanceof ResolutionTimeoutError) recordPossiblyCommitted(presentedAt);
+        if (error instanceof ResolutionTimeoutError) {
+          recordPossiblyCommitted(presentedAt);
+        } else if (error instanceof TypeError && onlineAtSend && browserOffline()) {
+          // CEL-2123 (review P2) — the network dropped while this refresh was
+          // in flight. The server may have committed the rotation before the
+          // connection died, so this is the same ambiguity as a timeout and
+          // the offline hold covers it. A TypeError when the device was
+          // ALREADY offline at send stays "not delivered" (it never left).
+          recordPossiblyCommitted(presentedAt);
+        }
         return failRenewal();
       }
 
@@ -1227,6 +1246,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // An explicit sign-in (OTP/dev login) issues a brand-new refresh cookie:
     // it always supersedes any uncertainty, whatever its timestamp says.
     clearUncertainty();
+    // CEL-2123 — and any held decision about the old cookie.
+    cancelOnlineResume();
     tokenGeneration += 1;
     const generation = tokenGeneration;
     supersedeExplicitAdoption();
@@ -1271,12 +1292,10 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     hasAccessToken: () => accessToken !== null,
 
     setAccessToken(token, expiresIn) {
-      cancelOnlineResume();
       startExplicitToken(token, expiresIn);
     },
 
     clearAccessToken() {
-      cancelOnlineResume();
       supersedeExplicitAdoption();
       if (clearCurrentGeneration(tokenGeneration)) {
         const clearedGeneration = tokenGeneration;
