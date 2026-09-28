@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.2
+
+### Fixed
+- **Offline no longer signs the user out mid-outage** (CEL-2123). A refresh that timed out records a possibly-committed rotation (0.20.0). Before, the 1.5s quick retries failed fast while the device stayed offline, and 8s after the send the tab failed closed: `unauthorized / session-uncertain`, while the user was still offline.
+  - Now, while `navigator.onLine` is false and a rotation may have committed, the tab stays `unavailable`. It neither presents the refresh cookie nor fails closed, and it schedules no quick retries.
+  - It decides once, on the browser's `online` event. Back inside the commit window, it re-presents (the backend grace makes that idempotent). Past it, it still fails closed as before.
+  - Being offline is never treated as proof that the timed-out request was not delivered: that could re-present a committed cookie outside the grace, which is `REFRESH_REPLAYED` and signs out every device in the family. The sign-out after a genuinely ambiguous lost response is deferred until the device is back online, not removed.
+  - Online behaviour is unchanged.
+
 ## 0.20.1
 
 ### Added

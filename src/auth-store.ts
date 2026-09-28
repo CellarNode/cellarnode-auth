@@ -405,6 +405,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // One timer slot shared with the scheduled renewal: a retry replaces it
     // and never stacks on top of it.
     if (refreshTimer) clearTimeout(refreshTimer);
+    if (currentUncertainty() !== null && browserOffline()) {
+      // CEL-2123 — no quick retry while offline (it could only fail, and the
+      // window check would then sign the user out mid-outage): resume on
+      // the browser's `online` event instead.
+      holdUntilOnline();
+      return;
+    }
     if (currentUncertainty() !== null) {
       // A rotation may have committed server-side: while the commit window is
       // open, retry ANY failure (timeout or connection error) quickly, inside
@@ -816,6 +823,36 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
    * the app shows sign-in. Signing this one tab in again is far better than
    * REFRESH_REPLAYED revoking every device in the family.
    */
+  /**
+   * CEL-2123 — true when the browser reports no network. Used ONLY to hold a
+   * possibly-committed rotation undecided; never as proof that a timed-out
+   * request was not delivered (that would risk REFRESH_REPLAYED revoking the
+   * family on every device).
+   */
+  function browserOffline(): boolean {
+    return typeof navigator !== "undefined" && navigator.onLine === false;
+  }
+
+  let onlineResume: (() => void) | null = null;
+  /**
+   * CEL-2123 — while offline with a possibly-committed rotation, the tab can
+   * neither confirm nor safely present the refresh cookie, and signing the
+   * user out mid-outage is the wrong answer. Wait for the browser's `online`
+   * event, then decide once: back inside the commit window it re-presents
+   * (the backend grace makes that idempotent); past it, it fails closed.
+   */
+  function holdUntilOnline(): void {
+    if (onlineResume) return;
+    const target = typeof window === "undefined" ? null : window;
+    if (!target || typeof target.addEventListener !== "function") return;
+    onlineResume = () => {
+      target.removeEventListener("online", onlineResume!);
+      onlineResume = null;
+      if (accessToken !== null) void store.resolveSession({ refresh: true });
+    };
+    target.addEventListener("online", onlineResume);
+  }
+
   function failClosedUncertain(): SessionResolution {
     renewalOwed = false;
     if (accessToken === null) {
@@ -843,6 +880,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // resolve all come through here): fail closed locally instead of risking
     // REFRESH_REPLAYED, which would revoke the family on every device.
     const uncertainSince = currentUncertainty();
+    // CEL-2123 — offline with a possibly-committed rotation: never present
+    // the cookie and never fail closed while the outage lasts. Stay
+    // `unavailable` and decide once the browser is back online.
+    if (uncertainSince !== null && browserOffline()) {
+      renewalOwed = true;
+      holdUntilOnline();
+      return Promise.resolve(markUnavailable(generation, accessToken));
+    }
     // A committed time in the FUTURE (the clock was set back) cannot be
     // trusted to still be inside the grace: treat it as expired.
     const now = Date.now();
