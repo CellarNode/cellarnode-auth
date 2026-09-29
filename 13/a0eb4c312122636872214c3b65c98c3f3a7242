@@ -1,0 +1,16 @@
+__tests__/refresh-probe.test.ts
+  h_af7161f060dc1e 190-205
+src/auth-store.ts
+  h_af7161f060dc1e 1016-1021,1065-1070
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "13a0eb4c312122636872214c3b65c98c3f3a7242",
+  "prompts": {},
+  "humans": {
+    "h_af7161f060dc1e": {
+      "author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
