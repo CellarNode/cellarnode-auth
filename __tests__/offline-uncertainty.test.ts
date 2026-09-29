@@ -39,6 +39,11 @@ function setup() {
     if (path === "/auth/me") {
       return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
     }
+    if (path === "/auth/refresh-probe") {
+      const since = refreshCalls[0] ?? null;
+      const past = since !== null && Date.now() - since >= 8_000;
+      return Promise.resolve(ok({ status: past ? "expired" : "not-committed" }));
+    }
     if (path === "/auth/refresh") {
       refreshCalls.push(Date.now());
       if (refreshCalls.length === 1) {
@@ -210,6 +215,10 @@ function committingBackend(opts: { dropOnFirstPresentation: boolean }) {
     if (path === "/auth/me") {
       return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
     }
+    if (path === "/auth/refresh-probe") {
+      const past = committedAt !== null && Date.now() - committedAt >= 8_000;
+      return Promise.resolve(ok({ status: past ? "expired" : "not-committed" }));
+    }
     if (path === "/auth/refresh") {
       if (!online) return Promise.reject(new TypeError("Failed to fetch"));
       presentedAt.push(Date.now());
@@ -333,6 +342,11 @@ function lateDropBackend(opts: { commitFirst: boolean; offlineAfterMs: number | 
     const path = new URL(String(url)).pathname;
     if (path === "/auth/me") {
       return online ? Promise.resolve(ok(user)) : Promise.reject(new TypeError("Failed to fetch"));
+    }
+    if (path === "/auth/refresh-probe") {
+      const since = committedAt ?? presentedAt[0] ?? null;
+      const past = since !== null && Date.now() - since >= 8_000;
+      return Promise.resolve(ok({ status: past ? "expired" : "not-committed" }));
     }
     if (path === "/auth/refresh") {
       if (!online) return Promise.reject(new TypeError("Failed to fetch"));

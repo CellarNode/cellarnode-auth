@@ -43,6 +43,11 @@ const TIMEOUT_RETRY_DELAY_MS = 1_500;
  * the tab fails closed locally instead (see `failClosedUncertain`).
  */
 const COMMIT_WINDOW_MS = 8_000;
+/**
+ * CEL-2124 — id of the refresh that might be lost. The server stores it only
+ * when that rotation commits. The probe replays it; it does not rotate.
+ */
+const REFRESH_ATTEMPT_HEADER = "X-Refresh-Attempt";
 
 /** A resolution request aborted by its own deadline (the server may have committed). */
 class ResolutionTimeoutError extends Error {
@@ -153,8 +158,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   })();
   const storageKeyPrefix = `cellarnode:auth:${productFamily ?? "default"}:${storageOrigin}`;
   const possiblyCommittedKey = `${storageKeyPrefix}:possibly-committed-at`;
+  const refreshAttemptKey = `${storageKeyPrefix}:refresh-attempt-id`;
+  const refreshSuppressedKey = `${storageKeyPrefix}:refresh-presentation-suppressed`;
   const lastConfirmedRotationKey = `${storageKeyPrefix}:last-confirmed-rotation-at`;
   let memoryPossiblyCommittedAt: number | null = null;
+  let memoryRefreshAttemptId: string | null = null;
+  let memoryRefreshSuppressed = false;
   let memoryLastConfirmedRotationAt: number | null = null;
 
   function localStorageOrNull(): Storage | null {
@@ -203,10 +212,60 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     return confirmed >= committed ? null : committed;
   }
 
-  function recordPossiblyCommitted(sentAt: number): void {
+  function readStoredString(key: string): string | null {
+    try {
+      const raw = localStorageOrNull()?.getItem(key);
+      return raw && raw.length > 0 ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStoredString(key: string, value: string | null): void {
+    try {
+      const storage = localStorageOrNull();
+      if (value === null) storage?.removeItem(key);
+      else storage?.setItem(key, value);
+    } catch {
+      // Quota/security errors: the in-memory value still guards this page.
+    }
+  }
+
+  function recordPossiblyCommitted(sentAt: number, attemptId: string): void {
     if (currentUncertainty() !== null) return; // keep the FIRST (earliest) one
     memoryPossiblyCommittedAt = sentAt;
+    memoryRefreshAttemptId = attemptId;
     writeTimestamp(possiblyCommittedKey, sentAt);
+    writeStoredString(refreshAttemptKey, attemptId);
+  }
+
+  /** Attempt id of the uncertain refresh, or null for a legacy record. */
+  function readAttemptId(): string | null {
+    if (currentUncertainty() === null) return null;
+    return readStoredString(refreshAttemptKey) ?? memoryRefreshAttemptId;
+  }
+
+  function refreshPresentationSuppressed(): boolean {
+    if (memoryRefreshSuppressed) return true;
+    try {
+      return localStorageOrNull()?.getItem(refreshSuppressedKey) === "1";
+    } catch {
+      return memoryRefreshSuppressed;
+    }
+  }
+
+  /**
+   * Probe said revoked or expired. The uncertainty record is gone, so this
+   * flag is what stops a later resolve from posting the old cookie.
+   */
+  function suppressRefreshPresentation(): void {
+    memoryRefreshSuppressed = true;
+    writeStoredString(refreshSuppressedKey, "1");
+  }
+
+  function clearRefreshSuppression(): void {
+    memoryRefreshSuppressed = false;
+    writeStoredString(refreshSuppressedKey, null);
   }
 
   /** A live credential was confirmed; `sentAt` is when its request left. */
@@ -224,7 +283,25 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
 
   function clearUncertainty(): void {
     memoryPossiblyCommittedAt = null;
+    memoryRefreshAttemptId = null;
     writeTimestamp(possiblyCommittedKey, null);
+    writeStoredString(refreshAttemptKey, null);
+  }
+
+  function pastCommitWindow(since: number | null = currentUncertainty()): boolean {
+    if (since === null) return false;
+    const now = Date.now();
+    return now >= since + COMMIT_WINDOW_MS || since > now;
+  }
+
+  function newRefreshAttemptId(): string {
+    return crypto.randomUUID();
+  }
+
+  function refreshProbePath(): string {
+    return refreshPath.endsWith("/refresh")
+      ? `${refreshPath.slice(0, -"refresh".length)}refresh-probe`
+      : "/auth/refresh-probe";
   }
 
   let accessToken: string | null = null;
@@ -420,7 +497,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       holdUntilOnline();
       return;
     }
-    if (currentUncertainty() !== null) {
+    if (currentUncertainty() !== null && !pastCommitWindow()) {
       // A rotation may have committed server-side: while the commit window is
       // open, retry ANY failure (timeout or connection error) quickly, inside
       // the backend grace, where a duplicate returns the committed successor.
@@ -847,6 +924,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   let onlineResume: (() => void) | null = null;
   /** A possibly-committed rotation is held undecided until `online`. */
   let holdOwed = false;
+  /** The next refresh is the reconnect decision: probe before presenting. */
+  let reconnectDecision = false;
   /**
    * CEL-2123 — while offline with a possibly-committed rotation, the tab can
    * neither confirm nor safely present the refresh cookie, and signing the
@@ -867,6 +946,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       // a new sign-in clears it first (cancelOnlineResume).
       if (!holdOwed) return;
       holdOwed = false;
+      reconnectDecision = true;
       void store.resolveSession({ refresh: true });
     };
     target.addEventListener("online", onlineResume);
@@ -879,7 +959,11 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
    * within LATE_OFFLINE_WATCH_MS, treat the request like one that failed
    * offline: it may have committed, so record it and hold.
    */
-  function watchForLateOffline(sentAt: number, generation: number): void {
+  function watchForLateOffline(
+    sentAt: number,
+    attemptId: string,
+    generation: number,
+  ): void {
     cancelLateOfflineWatch();
     const target = typeof window === "undefined" ? null : window;
     if (!target || typeof target.addEventListener !== "function") return;
@@ -887,7 +971,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       cancelLateOfflineWatch();
       // A newer session owns the timers and the uncertainty record now.
       if (generation !== tokenGeneration) return;
-      recordPossiblyCommitted(sentAt);
+      recordPossiblyCommitted(sentAt, attemptId);
       // The pending backoff retry would only fail offline; hold instead.
       if (refreshTimer) {
         clearTimeout(refreshTimer);
@@ -914,11 +998,74 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   /** A new session or a sign-out owes no decision on the old rotation. */
   function cancelOnlineResume(): void {
     holdOwed = false;
+    reconnectDecision = false;
     if (!onlineResume) return;
     if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
       window.removeEventListener("online", onlineResume);
     }
     onlineResume = null;
+  }
+
+  type ProbeOutcome =
+    | "committed"
+    | "not-committed"
+    | "revoked"
+    | "expired"
+    | "inconclusive";
+
+  function readProbeOutcome(raw: unknown): ProbeOutcome | null {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const status = (raw as Record<string, unknown>).status;
+    if (
+      status === "committed" ||
+      status === "not-committed" ||
+      status === "revoked" ||
+      status === "expired"
+    ) {
+      return status;
+    }
+    return null;
+  }
+
+  /**
+   * CEL-2124 — ask whether the lost refresh committed. The probe presents the
+   * old cookie and the attempt id; it does not rotate and does not move
+   * `rotatedAt`. A transport failure is inconclusive: do not guess.
+   */
+  async function probeRefreshAttempt(attemptId: string): Promise<ProbeOutcome> {
+    try {
+      const { response, raw } = await withResolutionTimeout(async (signal) => {
+        const response = await fetchAuthRequest(baseUrl, refreshProbePath(), {
+          method: "POST",
+          credentials: "include",
+          signal,
+          headers: {
+            "Content-Type": "application/json",
+            [REFRESH_ATTEMPT_HEADER]: attemptId,
+            ...(productFamily
+              ? { [SESSION_FAMILY_HEADER]: productFamily }
+              : {}),
+          },
+        });
+        let body: unknown = null;
+        try {
+          body = await response.json();
+        } catch {
+          body = null;
+        }
+        return { response, raw: body };
+      }, Math.min(requestTimeoutMs, REFRESH_REQUEST_TIMEOUT_MS));
+      if (response.status === 429) return "inconclusive";
+      // The attempt id is stored only when rotation commits. A 401 for that
+      // id means the lost refresh did not commit, so the old cookie is still
+      // safe to present. Any other 401 stays inconclusive.
+      if (response.status === 401 && readErrorCode(raw) === "INVALID_REFRESH_ATTEMPT") {
+        return "not-committed";
+      }
+      return readProbeOutcome(raw) ?? "inconclusive";
+    } catch {
+      return "inconclusive";
+    }
   }
 
   function failClosedUncertain(): SessionResolution {
@@ -945,8 +1092,13 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // CEL-2107 — the ONLY place the refresh cookie is presented. Once the
     // commit window of a possibly-committed rotation has passed, never
     // present it again (backoff, "Try again", read-401 fallback and a cold
-    // resolve all come through here): fail closed locally instead of risking
-    // REFRESH_REPLAYED, which would revoke the family on every device.
+    // resolve all come through here) unless the probe says that presentation
+    // is safe. A revoked or expired probe, or a legacy record with no attempt
+    // id, fails closed locally instead of risking REFRESH_REPLAYED.
+    if (refreshPresentationSuppressed()) {
+      reconnectDecision = false;
+      return Promise.resolve(failClosedUncertain());
+    }
     const uncertainSince = currentUncertainty();
     // CEL-2123 — offline with a possibly-committed rotation: never present
     // the cookie and never fail closed while the outage lasts. Stay
@@ -958,11 +1110,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     }
     // A committed time in the FUTURE (the clock was set back) cannot be
     // trusted to still be inside the grace: treat it as expired.
-    const now = Date.now();
-    if (
-      uncertainSince !== null &&
-      (now >= uncertainSince + COMMIT_WINDOW_MS || uncertainSince > now)
-    ) {
+    const pastWindow = pastCommitWindow(uncertainSince);
+    const storedAttemptId = readAttemptId();
+    const shouldProbe =
+      storedAttemptId !== null && (pastWindow || reconnectDecision);
+    if (pastWindow && !shouldProbe) {
+      reconnectDecision = false;
       return Promise.resolve(failClosedUncertain());
     }
 
@@ -970,6 +1123,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     authorityFlight = null;
 
     if (!baseline && identityFlight?.generation === generation) {
+      if (!shouldProbe) reconnectDecision = false;
       const pendingIdentity = identityFlight.promise;
       return pendingIdentity.then((result) => {
         if (result.status === "ready") {
@@ -1018,10 +1172,35 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // CEL-2123 — a new send supersedes the previous refresh's late-offline
     // watch: it can never record for an already-resolved refresh.
     cancelLateOfflineWatch();
-    const presentedAt = Date.now();
-    // CEL-2123 (review P2) — whether the browser had a network at send time.
-    const onlineAtSend = !browserOffline();
+    reconnectDecision = false;
     void (async (): Promise<SessionResolution> => {
+      if (shouldProbe && storedAttemptId) {
+        const outcome = await probeRefreshAttempt(storedAttemptId);
+        if (refreshGeneration !== tokenGeneration) return { status: "superseded" };
+        if (outcome === "revoked" || outcome === "expired") {
+          // The server confirmed this cookie must not be posted to refresh.
+          store.endSessionUncertainty?.();
+          suppressRefreshPresentation();
+          renewalOwed = false;
+          return clearCurrentGeneration(refreshGeneration, "session-uncertain")
+            ? { status: "unauthorized" }
+            : { status: "superseded" };
+        }
+        if (outcome === "committed" || outcome === "not-committed") {
+          // Committed: the probe re-set the successor. Not committed: the
+          // original refresh is safe to retry. Either way the old uncertainty
+          // is decided, so the refresh below is an ordinary presentation.
+          clearUncertainty();
+        } else if (pastWindow) {
+          // Inconclusive past the window: do not present, do not sign out.
+          return failRenewal();
+        }
+      }
+
+      const refreshAttemptId = readAttemptId() ?? newRefreshAttemptId();
+      const refreshSentAt = Date.now();
+      // CEL-2123 (review P2) — whether the browser had a network at send time.
+      const onlineAtSend = !browserOffline();
       let result: { response: Response; raw: unknown };
       try {
         result = await fetchResolutionResponse(
@@ -1031,6 +1210,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
+            [REFRESH_ATTEMPT_HEADER]: refreshAttemptId,
             // CEL-1722: family declaration routes the server to this family's
             // scoped refresh cookie (legacy `refresh_token` stays the read
             // fallback) and opts the request into the bounded lost-response
@@ -1044,14 +1224,14 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         );
       } catch (error) {
         if (error instanceof ResolutionTimeoutError) {
-          recordPossiblyCommitted(presentedAt);
+          recordPossiblyCommitted(refreshSentAt, refreshAttemptId);
         } else if (error instanceof TypeError && onlineAtSend && browserOffline()) {
           // CEL-2123 (review P2) — the network dropped while this refresh was
           // in flight. The server may have committed the rotation before the
           // connection died, so this is the same ambiguity as a timeout and
           // the offline hold covers it. A TypeError when the device was
           // ALREADY offline at send stays "not delivered" (it never left).
-          recordPossiblyCommitted(presentedAt);
+          recordPossiblyCommitted(refreshSentAt, refreshAttemptId);
         } else if (
           error instanceof TypeError &&
           onlineAtSend &&
@@ -1060,7 +1240,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
           // CEL-2123 (review P3) — still online at catch: the browser may
           // report the drop a moment later. A superseded refresh (a newer
           // sign-in or send took over) never starts a watch.
-          watchForLateOffline(presentedAt, refreshGeneration);
+          watchForLateOffline(refreshSentAt, refreshAttemptId, refreshGeneration);
         }
         return failRenewal();
       }
@@ -1108,7 +1288,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       // Confirmed rotation: clears (for every tab) any uncertainty older than
       // this request's send.
       cancelLateOfflineWatch();
-      scheduleRefresh(expiresIn, presentedAt);
+      scheduleRefresh(expiresIn, refreshSentAt);
 
       return startIdentityFlight(
         nextGeneration,
@@ -1307,6 +1487,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // An explicit sign-in (OTP/dev login) issues a brand-new refresh cookie:
     // it always supersedes any uncertainty, whatever its timestamp says.
     clearUncertainty();
+    clearRefreshSuppression();
     // CEL-2123 — and any held decision about the old cookie.
     cancelOnlineResume();
     cancelLateOfflineWatch();
