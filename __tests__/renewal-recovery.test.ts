@@ -50,6 +50,11 @@ function routeFetch(routes: {
     if (path === "/auth/me") return routes.me(init);
     if (path === "/auth/refresh" && routes.refresh) return routes.refresh(init);
     if (path === "/auth/revalidate" && routes.revalidate) return routes.revalidate(init);
+    // CEL-2124 — these suites predate the probe. A lost refresh now asks
+    // before failing closed; expired keeps the old "do not present" outcome.
+    if (path === "/auth/refresh-probe") {
+      return Promise.resolve(response({ status: "expired" }));
+    }
     return Promise.reject(new TypeError(`unrouted ${path}`));
   }) as typeof fetch;
   return calls;
@@ -585,8 +590,17 @@ describe("renewal recovery (CEL-2107)", () => {
 
     await vi.advanceTimersByTimeAsync(840_000); // commits, response lost
     await vi.advanceTimersByTimeAsync(4_000); // timed out: uncertainty recorded
-    // Only numeric timestamps are persisted, never a token.
-    for (const value of map.values()) expect(value).toMatch(/^\d+$/);
+    // Timestamps and the refresh attempt id are persisted, never a token.
+    for (const [key, value] of map) {
+      if (key.endsWith(":refresh-attempt-id")) {
+        expect(value).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        );
+        continue;
+      }
+      expect(value).toMatch(/^\d+$/);
+      expect(key).not.toMatch(/token/i);
+    }
 
     await vi.advanceTimersByTimeAsync(6_000); // the user reloads after the window
     const presented = backend.presentedAt.length;
