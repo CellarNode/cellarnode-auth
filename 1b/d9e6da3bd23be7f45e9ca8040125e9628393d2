@@ -1,0 +1,21 @@
+__tests__/offline-uncertainty.test.ts
+  s_c96ec9c4effc39::t_8fbf5f3ba87ed0 42-46,218-221,346-350
+__tests__/renewal-recovery.test.ts
+  s_c96ec9c4effc39::t_e17c4f254c29c6 53-57,593-603
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1bd9e6da3bd23be7f45e9ca8040125e9628393d2",
+  "prompts": {},
+  "sessions": {
+    "s_c96ec9c4effc39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e73c-9664-7653-84fd-8334804632aa",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
