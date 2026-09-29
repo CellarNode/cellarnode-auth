@@ -1013,12 +1013,6 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     | "expired"
     | "inconclusive";
 
-  function readErrorCode(raw: unknown): string | null {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    const code = (raw as Record<string, unknown>).code;
-    return typeof code === "string" ? code : null;
-  }
-
   function readProbeOutcome(raw: unknown): ProbeOutcome | null {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const status = (raw as Record<string, unknown>).status;
