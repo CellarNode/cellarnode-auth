@@ -187,6 +187,22 @@ describe("refresh attempt probe (CEL-2124)", () => {
     expect(store.getSessionState()).not.toMatchObject({ status: "unauthorized" });
   });
 
+  it("a 401 for an attempt the server never stored retries the refresh", async () => {
+    const { storage } = memoryStorage();
+    const backend = install({
+      probe: () =>
+        Promise.resolve(
+          response({ error: "Unknown refresh attempt", code: "INVALID_REFRESH_ATTEMPT" }, 401),
+        ),
+    });
+    const store = await lostRefresh(storage);
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(backend.probes()).toHaveLength(1);
+    expect(backend.refreshes().length).toBeGreaterThanOrEqual(2);
+    expect(store.getSessionState()).toMatchObject({ status: "ready", token: "tok_b" });
+  });
+
   it.each(["revoked", "expired"] as const)(
     "%s: ends uncertainty and does not post the old cookie to refresh",
     async (status) => {

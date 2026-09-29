@@ -1013,6 +1013,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     | "expired"
     | "inconclusive";
 
+  function readErrorCode(raw: unknown): string | null {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const code = (raw as Record<string, unknown>).code;
+    return typeof code === "string" ? code : null;
+  }
+
   function readProbeOutcome(raw: unknown): ProbeOutcome | null {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const status = (raw as Record<string, unknown>).status;
@@ -1056,6 +1062,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
         return { response, raw: body };
       }, Math.min(requestTimeoutMs, REFRESH_REQUEST_TIMEOUT_MS));
       if (response.status === 429) return "inconclusive";
+      // The attempt id is stored only when rotation commits. A 401 for that
+      // id means the lost refresh did not commit, so the old cookie is still
+      // safe to present. Any other 401 stays inconclusive.
+      if (response.status === 401 && readErrorCode(raw) === "INVALID_REFRESH_ATTEMPT") {
+        return "not-committed";
+      }
       return readProbeOutcome(raw) ?? "inconclusive";
     } catch {
       return "inconclusive";
