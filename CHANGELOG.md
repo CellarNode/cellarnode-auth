@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `fetchImpl` config on `AuthStoreConfig` and `AuthClientConfig` (CEL-2208):
+  non-browser hosts (the CellarNode MCP server) inject a cookie-jar-aware
+  fetch for refresh/identity/client transport. Browsers are unchanged
+  (defaults to global fetch).
+
 ## 0.20.3
 
 ### Fixed

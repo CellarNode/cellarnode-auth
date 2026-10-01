@@ -125,6 +125,7 @@ const LATE_OFFLINE_WATCH_MS = 2_000;
 export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   const {
     baseUrl,
+    fetchImpl,
     refreshPath = "/auth/refresh",
     revalidatePath = "/auth/revalidate",
     refreshBuffer = 60,
@@ -596,10 +597,15 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     timeoutMs: number = requestTimeoutMs,
   ): Promise<{ response: Response; raw: unknown }> {
     return withResolutionTimeout(async (signal) => {
-      const response = await fetchAuthRequest(baseUrl, path, {
-        ...init,
-        signal,
-      });
+      const response = await fetchAuthRequest(
+        baseUrl,
+        path,
+        {
+          ...init,
+          signal,
+        },
+        fetchImpl,
+      );
       const raw = response.ok ? await response.json() : null;
       return { response, raw };
     }, timeoutMs);
@@ -1035,18 +1041,23 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   async function probeRefreshAttempt(attemptId: string): Promise<ProbeOutcome> {
     try {
       const { response, raw } = await withResolutionTimeout(async (signal) => {
-        const response = await fetchAuthRequest(baseUrl, refreshProbePath(), {
-          method: "POST",
-          credentials: "include",
-          signal,
-          headers: {
-            "Content-Type": "application/json",
-            [REFRESH_ATTEMPT_HEADER]: attemptId,
-            ...(productFamily
-              ? { [SESSION_FAMILY_HEADER]: productFamily }
-              : {}),
+        const response = await fetchAuthRequest(
+          baseUrl,
+          refreshProbePath(),
+          {
+            method: "POST",
+            credentials: "include",
+            signal,
+            headers: {
+              "Content-Type": "application/json",
+              [REFRESH_ATTEMPT_HEADER]: attemptId,
+              ...(productFamily
+                ? { [SESSION_FAMILY_HEADER]: productFamily }
+                : {}),
+            },
           },
-        });
+          fetchImpl,
+        );
         let body: unknown = null;
         try {
           body = await response.json();
@@ -1361,15 +1372,20 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       let result: { response: Response; raw: unknown };
       try {
         result = await withResolutionTimeout(async (signal) => {
-          const response = await fetchAuthRequest(baseUrl, revalidatePath, {
-            method: "POST",
-            credentials: "omit",
-            headers: {
-              Authorization: `Bearer ${bearerToken}`,
-              "Content-Type": "application/json",
+          const response = await fetchAuthRequest(
+            baseUrl,
+            revalidatePath,
+            {
+              method: "POST",
+              credentials: "omit",
+              headers: {
+                Authorization: `Bearer ${bearerToken}`,
+                "Content-Type": "application/json",
+              },
+              signal,
             },
-            signal,
-          });
+            fetchImpl,
+          );
           let raw: unknown = null;
           try {
             raw = await response.json();
@@ -1610,12 +1626,17 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     async devLogin(email: string): Promise<DevLoginResult> {
       let response: Response;
       try {
-        response = await fetchAuthRequest(baseUrl, "/test/login", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        });
+        response = await fetchAuthRequest(
+          baseUrl,
+          "/test/login",
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+          },
+          fetchImpl,
+        );
       } catch {
         return {
           ok: false,

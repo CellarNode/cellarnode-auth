@@ -8,7 +8,7 @@ import {
 import { fetchAuthRequest } from "./auth-transport.js";
 
 export function createAuthClient(config: AuthClientConfig): AuthClient {
-  const { baseUrl, store, onAuthFailure } = config;
+  const { baseUrl, store, onAuthFailure, fetchImpl } = config;
 
   async function parseErrorResponse(
     res: Response,
@@ -58,11 +58,16 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
 
       const retryWithToken = async (token: string): Promise<T> => {
         headers.set("Authorization", `Bearer ${token}`);
-        const retryRes = await fetchAuthRequest(baseUrl, path, {
-          ...init,
-          headers,
-          credentials: "include",
-        });
+        const retryRes = await fetchAuthRequest(
+          baseUrl,
+          path,
+          {
+            ...init,
+            headers,
+            credentials: "include",
+          },
+          fetchImpl,
+        );
         if (retryRes.ok) return (await retryRes.json()) as T;
 
         const retryError = await parseErrorResponse(retryRes);
@@ -74,11 +79,16 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         );
       };
 
-      const res = await fetchAuthRequest(baseUrl, path, {
-        ...init,
-        headers,
-        credentials: "include",
-      });
+      const res = await fetchAuthRequest(
+        baseUrl,
+        path,
+        {
+          ...init,
+          headers,
+          credentials: "include",
+        },
+        fetchImpl,
+      );
 
       if (res.ok) {
         return (await res.json()) as T;

@@ -52,7 +52,8 @@ export function fetchAuthRequest(
   baseUrl: string,
   path: string,
   init: RequestInit = {},
+  fetchImpl: typeof fetch = fetch,
 ): Promise<Response> {
   const url = resolveAuthRequestUrl(baseUrl, path);
-  return fetch(url, { ...init, redirect: "error" });
+  return fetchImpl(url, { ...init, redirect: "error" });
 }
