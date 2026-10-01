@@ -88,6 +88,12 @@ export class AuthError extends Error {
 
 export interface AuthStoreConfig {
   baseUrl: string;
+  /**
+   * Fetch implementation used for all store transport (refresh, revalidate,
+   * identity, dev login). Non-browser hosts (the MCP server) inject a
+   * cookie-jar-aware fetch; browsers leave it unset for global fetch.
+   */
+  fetchImpl?: typeof fetch;
   refreshPath?: string;
   /** Non-rotating authority remint path (CEL-1853). Defaults to `/auth/revalidate`. */
   revalidatePath?: string;
@@ -386,6 +392,8 @@ export interface AuthClientConfig {
   baseUrl: string;
   store: AuthStore;
   onAuthFailure?: () => void;
+  /** Fetch implementation used for client transport. See AuthStoreConfig. */
+  fetchImpl?: typeof fetch;
 }
 
 export interface AuthClient {
