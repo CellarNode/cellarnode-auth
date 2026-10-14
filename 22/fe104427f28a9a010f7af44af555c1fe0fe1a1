@@ -1,0 +1,37 @@
+CHANGELOG.md
+  s_4fb4393eff17a7::t_d5810954cb16a6 8-12
+README.md
+  s_4fb4393eff17a7::t_64afe13cbf40bf 99-115,120-124
+__tests__/copy-completeness.test.tsx
+  s_4fb4393eff17a7::t_98b74d008d0ca7 1-189
+__tests__/form-copy.test.tsx
+  s_4fb4393eff17a7::t_1c4ec29e5a1fa4 144-145,187,223-361
+package.json
+  s_4fb4393eff17a7::t_3a90d6b3cdb9fb 42
+src/react/copy.ts
+  s_4fb4393eff17a7::t_9eeaddd85686f2 8,14-25,35-48,71,73,78,84-85,95-107,111-120,125,155-158,164-165,175,178-179,195-196,201,225-227,232-233
+src/react/index.ts
+  s_4fb4393eff17a7::t_a063193052a639 40
+src/react/login-form.tsx
+  s_4fb4393eff17a7::t_8cb07ecdc94f64 3,16,75,117,161-165,168-180,182,187-190,192-195,197-198,206,208-212,214,229,254,361,431,453,462-466,498,505-506,537-541,582,620
+src/react/register-form.tsx
+  s_4fb4393eff17a7::t_ba966ba603f7ee 7,87-94,109,130,132,188-192
+tsconfig.test.json
+  s_4fb4393eff17a7::t_9ba9dc74f0ef45 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22fe104427f28a9a010f7af44af555c1fe0fe1a1",
+  "prompts": {},
+  "sessions": {
+    "s_4fb4393eff17a7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4d34e26-752c-4de0-b0eb-3b816dce2681",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
