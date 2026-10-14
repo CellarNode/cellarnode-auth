@@ -4,7 +4,12 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { AuthApi } from "../types.js";
 import { AuthError } from "../types.js";
-import { renderCopy, resolveRegisterFormCopy, type RegisterFormCopy } from "./copy.js";
+import {
+  DEFAULT_REGISTER_FORM_COPY as D,
+  renderCopy,
+  resolveRegisterFormCopy,
+  type RegisterFormCopy,
+} from "./copy.js";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -106,7 +111,7 @@ export function RegisterForm({
         <div className="p-6 text-center">
           <h2 className="text-2xl font-semibold">{c.accountCreatedHeading}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {renderCopy(c.accountCreatedDescription, { email })}
+            {renderCopy(c.accountCreatedDescription, { email }, D.accountCreatedDescription as string)}
           </p>
         </div>
         <div className="px-6 pb-6">
@@ -127,10 +132,11 @@ export function RegisterForm({
       <div className="p-6 text-center">
         <h2 className="text-2xl font-semibold">{c.heading}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          {renderCopy(c.registerAsDescription, {
-            role: userType === "importer" ? c.roleImporter : c.roleProducer,
-            userType,
-          })}
+          {renderCopy(
+            c.registerAsDescription,
+            { role: userType === "importer" ? c.roleImporter : c.roleProducer, userType },
+            D.registerAsDescription as string,
+          )}
         </p>
       </div>
       <div className="px-6 pb-6">

@@ -179,6 +179,32 @@ describe("RegisterForm: no bare English with a sentinel copy", () => {
     await waitFor(() => expect(document.querySelector("[role='alert']")).not.toBeNull());
     expectNoEnglish("register error");
     cleanup();
+    // The other three register codes, an unknown code, a network TypeError and a non-Error.
+    for (const rejection of [
+      new AuthError(400, "USER_DELETED", "Raw server English"),
+      new AuthError(403, "REGISTRATION_CLOSED", "Raw server English"),
+      new AuthError(400, "INVITE_TOKEN_INVALID", "Raw server English"),
+      new AuthError(502, "UNKNOWN", "Raw server English"),
+      new TypeError("Failed to fetch"),
+      "boom",
+    ]) {
+      const api = { ...makeApi(), register: vi.fn().mockRejectedValue(rejection) };
+      render(
+        <RegisterForm
+          userType="producer"
+          onRegistered={noop}
+          onNavigateLogin={noop}
+          authApi={api}
+          copy={{ ...copy, networkError: sentinel("networkError") }}
+        />,
+      );
+      fireEvent.change(screen.getAllByRole("textbox")[0]!, { target: { value: "N" } });
+      fireEvent.change(screen.getAllByRole("textbox")[1]!, { target: { value: "1@2.3" } });
+      fireEvent.click(screen.getByRole("button", { name: sentinel("createAccount") }));
+      await waitFor(() => expect(document.querySelector("[role='alert']")).not.toBeNull());
+      expectNoEnglish(`register rejected with ${String(rejection)}`);
+      cleanup();
+    }
     render(<RegisterForm userType="producer" onRegistered={noop} onNavigateLogin={noop} authApi={makeApi()} copy={copy} />);
     fireEvent.change(screen.getAllByRole("textbox")[0]!, { target: { value: "N" } });
     fireEvent.change(screen.getAllByRole("textbox")[1]!, { target: { value: "1@2.3" } });

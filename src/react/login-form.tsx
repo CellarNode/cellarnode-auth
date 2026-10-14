@@ -13,7 +13,12 @@ import {
 import { clsx } from "clsx";
 import type { AuthApi, AuthStore } from "../types.js";
 import { AuthError } from "../types.js";
-import { renderCopy, resolveLoginFormCopy, type LoginFormCopy } from "./copy.js";
+import {
+  DEFAULT_LOGIN_FORM_COPY as D,
+  renderCopy,
+  resolveLoginFormCopy,
+  type LoginFormCopy,
+} from "./copy.js";
 import {
   InputOTP,
   InputOTPGroup,
@@ -72,7 +77,7 @@ type Step = "email" | "otp";
  * exists, a code is on its way. Exported for direct unit testing.
  */
 export function otpSentNotice(email: string): string {
-  return renderCopy(resolveLoginFormCopy().otpSentNotice, { email });
+  return renderCopy(resolveLoginFormCopy().otpSentNotice, { email }, D.otpSentNotice as string);
 }
 
 function formatCountdown(target: string | null, fallback = "10:00") {
@@ -161,6 +166,7 @@ export function LoginForm({
     return renderCopy(
       c.wrongPortal,
       { userType },
+      D.wrongPortal as string,
       { userType: userType === "importer" ? c.userTypeImporter : c.userTypeProducer },
     );
   }
@@ -194,7 +200,7 @@ export function LoginForm({
       msg =
         override ??
         (err.code === "OTP_INVALID"
-          ? renderCopy(c.invalidCode, { attempts: err.remainingAttempts ?? 0 })
+          ? renderCopy(c.invalidCode, { attempts: err.remainingAttempts ?? 0 }, D.invalidCode as string)
           : (named ?? hostFallback ?? err.message ?? c.somethingWentWrong));
 
       // Side effects for specific error codes
@@ -241,10 +247,11 @@ export function LoginForm({
       const result = await authApi.verifyOtp(normalizedEmail, code);
 
       if (result.user.userType !== userType) {
+        // Drop the wrong-type session FIRST: nothing the message builder does may leave it standing.
+        authStore.clearAccessToken();
         const msg = wrongPortalMessage();
         setError(msg);
         if (onError) onError({ code: "USER_TYPE_MISMATCH", message: msg, authenticatedUserType: result.user.userType ?? undefined });
-        authStore.clearAccessToken();
         return;
       }
 
@@ -428,7 +435,7 @@ export function LoginForm({
             <p className="mt-2 text-sm/6 text-muted-foreground">
               {step === "email"
                 ? c.emailDescription
-                : renderCopy(c.otpSentNotice, { email: normalizedEmail })}
+                : renderCopy(c.otpSentNotice, { email: normalizedEmail }, D.otpSentNotice as string)}
             </p>
 
             {/* Forms */}
@@ -495,7 +502,7 @@ export function LoginForm({
                   <div className="flex justify-center">
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
                       <Clock3 className="size-3" />
-                      {renderCopy(c.expiresIn, { time: countdown })}
+                      {renderCopy(c.expiresIn, { time: countdown }, D.expiresIn as string)}
                     </div>
                   </div>
 
@@ -579,7 +586,7 @@ export function LoginForm({
                       onClick={handleResend}
                       disabled={isSubmitting || !canResend}
                     >
-                      {canResend ? c.resendCode : renderCopy(c.resendIn, { time: resendCountdown })}
+                      {canResend ? c.resendCode : renderCopy(c.resendIn, { time: resendCountdown }, D.resendIn as string)}
                     </button>
                   </div>
                 </form>

@@ -359,3 +359,77 @@ describe("fallbacks and error lookups", () => {
     expect(Object.isFrozen(DEFAULT_REGISTER_FORM_COPY)).toBe(true);
   });
 });
+
+describe("a throwing host function never breaks the form (falls back to the English default)", () => {
+  const boom = () => {
+    throw new Error("host bug");
+  };
+
+  it("render path: a throwing otpSentNotice / expiresIn / resendIn still renders the code step in English", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = login({ copy: { otpSentNotice: boom, expiresIn: boom, resendIn: boom } });
+    await toOtpStep("ada@example.com");
+    expect(container.textContent).toContain("If an account exists for ada@example.com, we've sent a code.");
+    expect(container.textContent).toMatch(/Expires in \d\d:\d\d/);
+    expect(container.textContent).toMatch(/Resend in \d\d:\d\d/);
+    expect(spy).toHaveBeenCalled(); // logged in development
+    spy.mockRestore();
+  });
+
+  it("a function that returns a non-string also falls back", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = login({ copy: { otpSentNotice: () => 42 as unknown as string } });
+    await toOtpStep("ada@example.com");
+    expect(container.textContent).toContain("If an account exists for ada@example.com, we've sent a code.");
+    spy.mockRestore();
+  });
+
+  it("invalidCode: the error is still shown (English default) and nothing is thrown out of the handler", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    const api = makeApi({ verifyOtp: vi.fn().mockRejectedValue(new AuthError(400, "OTP_INVALID", "server English", 2)) });
+    const onError = vi.fn();
+    const { container } = login({ copy: { invalidCode: boom }, onError }, api);
+    await toOtpStep();
+    const input = container.querySelector("input[data-input-otp]") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "111111" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await waitFor(() => expect(container.textContent).toContain("Invalid code. 2 attempt(s) remaining."));
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "OTP_INVALID", message: "Invalid code. 2 attempt(s) remaining." }));
+    await new Promise((r) => setTimeout(r, 0));
+    process.off("unhandledRejection", onUnhandled);
+    expect(unhandled).toEqual([]);
+    spy.mockRestore();
+  });
+
+  it("wrongPortal: the session is still cleared and USER_TYPE_MISMATCH still reaches onError (the dialog can open)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const clearAccessToken = vi.fn();
+    const onError = vi.fn();
+    const api = makeApi({
+      verifyOtp: vi.fn(async () => ({ accessToken: "t", expiresIn: 60, user: { id: "u", email: "", name: "", phone: "", userType: "producer", orgId: null, roles: [] } })),
+    });
+    const { container } = login({ copy: { wrongPortal: boom }, onError, authStore: { setAccessToken: noop, clearAccessToken } }, api);
+    await toOtpStep();
+    const input = container.querySelector("input[data-input-otp]") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "111111" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(clearAccessToken).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "USER_TYPE_MISMATCH", authenticatedUserType: "producer", message: "This portal is for importer accounts only." }),
+    );
+    spy.mockRestore();
+  });
+
+  it("a throwing register function still renders the form", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = render(
+      <RegisterForm userType="importer" onRegistered={noop} onNavigateLogin={noop} authApi={makeApi()} copy={{ registerAsDescription: boom }} />,
+    );
+    expect(container.textContent).toContain("Register as an importer to get started");
+    spy.mockRestore();
+  });
+});

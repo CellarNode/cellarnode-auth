@@ -32,13 +32,27 @@ export function interpolateCopy(
   );
 }
 
-/** Render a {@link CopyText}: call the function, or interpolate the template with `tokens` (default: the vars themselves). */
+/**
+ * Render a {@link CopyText}: call the function, or interpolate the template with `tokens` (default: the vars themselves).
+ *
+ * A host function is outside this package's control, so a throw (or a non-string result) must never take the form down: it falls back
+ * to the English `fallback` for that field (a template string, filled with `tokens`) and is logged in development.
+ */
 export function renderCopy<Vars extends Record<string, string | number>>(
   text: CopyText<Vars>,
   vars: Vars,
+  fallback: string,
   tokens: Readonly<Record<string, string | number>> = vars,
 ): string {
-  return typeof text === "function" ? text(vars) : interpolateCopy(text, tokens);
+  if (typeof text !== "function") return interpolateCopy(text, tokens);
+  try {
+    const result = text(vars);
+    if (typeof result === "string") return result;
+    throw new TypeError(`a copy function must return a string, got ${typeof result}`);
+  } catch (error) {
+    if (import.meta.env?.DEV) console.error("[@cellarnode/auth] a copy function failed; using the English default", error);
+    return interpolateCopy(fallback, tokens);
+  }
 }
 
 /** Drop `undefined` / `null` values so an explicit `undefined` can never blank (or crash on) a default. */
