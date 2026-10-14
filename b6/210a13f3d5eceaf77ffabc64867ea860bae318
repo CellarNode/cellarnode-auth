@@ -1,0 +1,16 @@
+package-lock.json
+  h_af7161f060dc1e 28,579-598,648-1036,1490-1504,1619-1637,1672-1700,1762-1807,1815-1824,1917-1991
+package.json
+  h_af7161f060dc1e 96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b6210a13f3d5eceaf77ffabc64867ea860bae318",
+  "prompts": {},
+  "humans": {
+    "h_af7161f060dc1e": {
+      "author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
