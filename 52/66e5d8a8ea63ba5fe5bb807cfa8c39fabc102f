@@ -1,0 +1,29 @@
+CHANGELOG.md
+  s_4fb4393eff17a7::t_4c66a815fe5b73 8,13,17-19
+__tests__/copy-completeness.test.tsx
+  s_4fb4393eff17a7::t_7ad3fcb5a225c0 182-207
+__tests__/form-copy.test.tsx
+  s_4fb4393eff17a7::t_1ebab0109d48ae 362-435
+src/react/copy.ts
+  s_4fb4393eff17a7::t_7f96546e3114be 35-40,44,47-55
+src/react/login-form.tsx
+  s_4fb4393eff17a7::t_587b3e80687a20 16-21,80,169,203,250-251,438,505,589
+src/react/register-form.tsx
+  s_4fb4393eff17a7::t_b65282e8003a93 7-12,114,135-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5266e5d8a8ea63ba5fe5bb807cfa8c39fabc102f",
+  "prompts": {},
+  "sessions": {
+    "s_4fb4393eff17a7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4d34e26-752c-4de0-b0eb-3b816dce2681",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
