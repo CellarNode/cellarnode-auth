@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useId, useMemo, useState } from "react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import {
   AlertCircle,
@@ -13,7 +13,7 @@ import {
 import { clsx } from "clsx";
 import type { AuthApi, AuthStore } from "../types.js";
 import { AuthError } from "../types.js";
-import { interpolateCopy, resolveLoginFormCopy, type LoginFormCopy } from "./copy.js";
+import { renderCopy, resolveLoginFormCopy, type LoginFormCopy } from "./copy.js";
 import {
   InputOTP,
   InputOTPGroup,
@@ -72,7 +72,7 @@ type Step = "email" | "otp";
  * exists, a code is on its way. Exported for direct unit testing.
  */
 export function otpSentNotice(email: string): string {
-  return interpolateCopy(resolveLoginFormCopy().otpSentNotice, { email });
+  return renderCopy(resolveLoginFormCopy().otpSentNotice, { email });
 }
 
 function formatCountdown(target: string | null, fallback = "10:00") {
@@ -114,6 +114,7 @@ export function LoginForm({
   const [isShaking, setIsShaking] = useState(false);
   const [devError, setDevError] = useState("");
   const [isDevSubmitting, setIsDevSubmitting] = useState(false);
+  const errorId = useId();
 
   // DEV-only email prefill (CEL-1364). Guarded INSIDE the effect so the hook
   // itself stays unconditional; Vite folds `import.meta.env.DEV` to `false` in
@@ -157,24 +158,44 @@ export function LoginForm({
   const normalizedEmail = email.trim();
 
   function wrongPortalMessage(): string {
-    return interpolateCopy(c.wrongPortal, {
-      userType: userType === "importer" ? c.userTypeImporter : c.userTypeProducer,
-    });
+    return renderCopy(
+      c.wrongPortal,
+      { userType },
+      { userType: userType === "importer" ? c.userTypeImporter : c.userTypeProducer },
+    );
   }
 
-  function handleAuthError(err: unknown, fallbackMessage: string) {
+  /** The fields the host actually supplied (a default is never "supplied"): they replace a raw, English error message. */
+  const supplied = (key: keyof LoginFormCopy): string | undefined => {
+    const value = copy?.[key];
+    return typeof value === "string" ? value : undefined;
+  };
+
+  function handleAuthError(
+    err: unknown,
+    operation: "failedToSendCode" | "failedToVerifyCode" | "failedToResendCode",
+  ) {
+    const fallback = c[operation];
+    const hostFallback = supplied(operation) ?? supplied("somethingWentWrong");
+    let msg: string;
     if (err instanceof AuthError) {
-      const known: Record<string, string> = {
+      const known: Record<string, string | undefined> = {
         OTP_RATE_LIMIT: c.rateLimit,
         OTP_NOT_FOUND: c.codeExpired,
         OTP_MAX_ATTEMPTS: c.maxAttempts,
         USER_DELETED: c.userDeleted,
+        USER_NOT_FOUND: supplied("userNotFound"),
+        PRODUCT_FAMILY_NOT_ALLOWED: supplied("productFamilyNotAllowed"),
+        OTP_USER_INVALID: supplied("otpUserInvalid"),
+        TOKEN_EXTRACTION_FAILED: supplied("tokenExtractionFailed"),
       };
-      const msg =
-        c.errors[err.code] ??
+      const override = Object.hasOwn(c.errors, err.code) ? c.errors[err.code] : undefined;
+      const named = Object.hasOwn(known, err.code) ? known[err.code] : undefined;
+      msg =
+        override ??
         (err.code === "OTP_INVALID"
-          ? interpolateCopy(c.invalidCode, { attempts: err.remainingAttempts ?? 0 })
-          : (known[err.code] ?? err.message ?? c.somethingWentWrong));
+          ? renderCopy(c.invalidCode, { attempts: err.remainingAttempts ?? 0 })
+          : (named ?? hostFallback ?? err.message ?? c.somethingWentWrong));
 
       // Side effects for specific error codes
       if (err.code === "OTP_NOT_FOUND" || err.code === "OTP_MAX_ATTEMPTS") {
@@ -182,25 +203,15 @@ export function LoginForm({
         setResendAvailableAt(new Date(0).toISOString());
       }
 
-      // Route error to callback if provided
-      if (onError) {
-        onError({
-          code: err.code,
-          message: msg,
-          remainingAttempts: err.remainingAttempts,
-        });
-        // Still show brief inline hint for context
-        setError(msg);
-      } else {
-        setError(msg);
-      }
+      onError?.({ code: err.code, message: msg, remainingAttempts: err.remainingAttempts });
     } else {
-      const msg = err instanceof Error ? err.message : fallbackMessage;
-      if (onError) {
-        onError({ code: "UNKNOWN", message: msg });
-      }
-      setError(msg);
+      // A network failure is a raw TypeError ("Failed to fetch"). Without host copy the raw message shows, as before.
+      const hostMessage =
+        err instanceof TypeError ? (supplied("networkError") ?? supplied(operation)) : supplied(operation);
+      msg = hostMessage ?? (err instanceof Error ? err.message : fallback);
+      onError?.({ code: "UNKNOWN", message: msg });
     }
+    setError(msg);
   }
 
   async function handleEmailSubmit(e: React.FormEvent) {
@@ -215,7 +226,7 @@ export function LoginForm({
       setStep("otp");
       setCode("");
     } catch (err) {
-      handleAuthError(err, c.failedToSendCode);
+      handleAuthError(err, "failedToSendCode");
     } finally {
       setIsSubmitting(false);
     }
@@ -240,7 +251,7 @@ export function LoginForm({
       authStore.setAccessToken(result.accessToken, result.expiresIn);
       onLoginSuccess();
     } catch (err) {
-      handleAuthError(err, c.failedToVerifyCode);
+      handleAuthError(err, "failedToVerifyCode");
       setCode("");
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 500);
@@ -347,7 +358,7 @@ export function LoginForm({
       setCode("");
       onResendSuccess?.();
     } catch (err) {
-      handleAuthError(err, c.failedToResendCode);
+      handleAuthError(err, "failedToResendCode");
     } finally {
       setIsSubmitting(false);
     }
@@ -417,7 +428,7 @@ export function LoginForm({
             <p className="mt-2 text-sm/6 text-muted-foreground">
               {step === "email"
                 ? c.emailDescription
-                : interpolateCopy(c.otpSentNotice, { email: normalizedEmail })}
+                : renderCopy(c.otpSentNotice, { email: normalizedEmail })}
             </p>
 
             {/* Forms */}
@@ -439,6 +450,7 @@ export function LoginForm({
                       onChange={(event) => setEmail(event.target.value)}
                       required
                       aria-invalid={!!error || undefined}
+                      aria-describedby={error && !onError ? errorId : undefined}
                       className={clsx(
                         "flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 transition-colors",
                         error
@@ -447,7 +459,11 @@ export function LoginForm({
                       )}
                     />
                     {error && !onError && (
-                      <div className="flex items-start gap-2 text-sm text-destructive">
+                      <div
+                        id={errorId}
+                        role="alert"
+                        className="flex items-start gap-2 text-sm text-destructive"
+                      >
                         <AlertCircle className="size-4 shrink-0 mt-0.5" />
                         <span>{error}</span>
                       </div>
@@ -479,13 +495,15 @@ export function LoginForm({
                   <div className="flex justify-center">
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
                       <Clock3 className="size-3" />
-                      {interpolateCopy(c.expiresIn, { time: countdown })}
+                      {renderCopy(c.expiresIn, { time: countdown })}
                     </div>
                   </div>
 
                   <div className="grid gap-2">
                     <InputOTP
                       id="otp"
+                      aria-label={c.codeInputAriaLabel}
+                      aria-describedby={error ? errorId : undefined}
                       value={code}
                       onChange={(value) => {
                         setCode(value);
@@ -516,7 +534,11 @@ export function LoginForm({
                       </InputOTPGroup>
                     </InputOTP>
                     {error && (
-                      <div className="flex items-center justify-center gap-2 text-sm text-destructive">
+                      <div
+                        id={errorId}
+                        role="alert"
+                        className="flex items-center justify-center gap-2 text-sm text-destructive"
+                      >
                         <AlertCircle className="size-4 shrink-0" />
                         <span>{error}</span>
                       </div>
@@ -557,7 +579,7 @@ export function LoginForm({
                       onClick={handleResend}
                       disabled={isSubmitting || !canResend}
                     >
-                      {canResend ? c.resendCode : interpolateCopy(c.resendIn, { time: resendCountdown })}
+                      {canResend ? c.resendCode : renderCopy(c.resendIn, { time: resendCountdown })}
                     </button>
                   </div>
                 </form>
@@ -595,7 +617,7 @@ export function LoginForm({
                     </button>
                   </>
                 ) : (
-                  (footerText ?? c.footerText)
+                  (footerText !== undefined ? footerText : c.footerText)
                 )}
               </p>
             )}

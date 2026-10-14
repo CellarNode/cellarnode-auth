@@ -141,8 +141,8 @@ describe("LoginForm copy: overrides apply", () => {
     const api = makeApi({
       verifyOtp: vi
         .fn()
-        .mockRejectedValueOnce(new AuthError("server English", "OTP_INVALID", 400, 2))
-        .mockRejectedValueOnce(new AuthError("server English", "OTP_MAX_ATTEMPTS", 429))
+        .mockRejectedValueOnce(new AuthError(400, "OTP_INVALID", "server English", 2))
+        .mockRejectedValueOnce(new AuthError(429, "OTP_MAX_ATTEMPTS", "server English"))
         .mockResolvedValueOnce({ accessToken: "t", expiresIn: 60, user: { id: "u", email: "", name: "", phone: "", userType: "producer", orgId: null, roles: [] } }),
     });
     const { container } = login({ copy: { ...de, maxAttempts: "Zu viele Versuche.", errors: { OTP_MAX_ATTEMPTS: "Gesperrt." } } }, api);
@@ -184,7 +184,7 @@ describe("RegisterForm copy", () => {
   });
 
   it("overrides apply to the form, the role phrase, the placeholders and the errors", async () => {
-    const api = makeApi({ register: vi.fn().mockRejectedValue(new AuthError("server English", "USER_ALREADY_EXISTS", 409)) });
+    const api = makeApi({ register: vi.fn().mockRejectedValue(new AuthError(409, "USER_ALREADY_EXISTS", "server English")) });
     const copy = {
       heading: "Konto erstellen",
       registerAsDescription: "Registrieren Sie sich als {role}",
@@ -218,5 +218,144 @@ describe("RegisterForm copy", () => {
     await waitFor(() => expect(container.textContent).toContain("Fertig"));
     expect(container.textContent).toContain("Code an {email}@x.test");
     expect(screen.getByRole("button", { name: "Zur Anmeldung" })).toBeTruthy();
+  });
+});
+
+describe("function-form copy (placeholders that survive a translation pipeline)", () => {
+  it("renders the host's function output for every placeholder field, with the raw values", async () => {
+    const wrongPortalSeen: string[] = [];
+    const api = makeApi({
+      verifyOtp: vi
+        .fn()
+        .mockRejectedValueOnce(new AuthError(400, "OTP_INVALID", "server English", 1))
+        .mockResolvedValueOnce({ accessToken: "t", expiresIn: 60, user: { id: "u", email: "", name: "", phone: "", userType: "producer", orgId: null, roles: [] } }),
+    });
+    const copy = {
+      otpSentNotice: ({ email }: { email: string }) => `gesendet an ${email}`,
+      expiresIn: ({ time }: { time: string }) => `läuft ab: ${time}`,
+      resendIn: ({ time }: { time: string }) => `erneut in ${time}`,
+      invalidCode: ({ attempts }: { attempts: number }) => (attempts === 1 ? "ein Versuch übrig" : `${attempts} Versuche übrig`),
+      wrongPortal: ({ userType }: { userType: "importer" | "producer" }) => {
+        wrongPortalSeen.push(userType);
+        return userType === "importer" ? "Nur Importeure." : "Nur Erzeuger.";
+      },
+    };
+    const { container } = login({ copy }, api);
+    await toOtpStep("a@b.c");
+    expect(container.textContent).toContain("gesendet an a@b.c");
+    expect(container.textContent).toMatch(/läuft ab: \d\d:\d\d/);
+    expect(container.textContent).toMatch(/erneut in \d\d:\d\d/);
+    const input = container.querySelector("input[data-input-otp]") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "111111" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await waitFor(() => expect(container.textContent).toContain("ein Versuch übrig"));
+    fireEvent.change(input, { target: { value: "222222" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await waitFor(() => expect(container.textContent).toContain("Nur Importeure."));
+    expect(wrongPortalSeen).toEqual(["importer"]); // the raw portal type, not a localized noun
+  });
+
+  it("the register form's function copy gets the email and the raw userType", async () => {
+    const { container } = render(
+      <RegisterForm
+        userType="producer"
+        onRegistered={noop}
+        onNavigateLogin={noop}
+        authApi={makeApi()}
+        copy={{
+          registerAsDescription: ({ userType }) => (userType === "producer" ? "Als Erzeuger registrieren" : "Als Importeur registrieren"),
+          accountCreatedDescription: ({ email }) => `Code an ${email}`,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain("Als Erzeuger registrieren");
+    fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Ada" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@x.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    await waitFor(() => expect(container.textContent).toContain("Code an ada@x.test"));
+  });
+});
+
+describe("fallbacks and error lookups", () => {
+  const send = async (err: unknown, copy?: Record<string, unknown>) => {
+    const api = makeApi({ requestOtp: vi.fn().mockRejectedValueOnce(err) });
+    const view = login(copy ? { copy } : {}, api);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "a@b.c" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await act(async () => {});
+    return view.container.textContent ?? "";
+  };
+
+  it("a real network TypeError shows the host's networkError, and the raw message when none was supplied (today's behaviour)", async () => {
+    expect(await send(new TypeError("Failed to fetch"), { networkError: "Keine Verbindung." })).toContain("Keine Verbindung.");
+    cleanup();
+    const raw = await send(new TypeError("Failed to fetch"), { emailHeading: "x" });
+    expect(raw).toContain("Failed to fetch");
+    expect(raw).not.toContain("We couldn't reach the server");
+  });
+
+  it("an AuthError with code UNKNOWN or an unmapped code shows the host's fallback if supplied, else the server message", async () => {
+    const e = () => new AuthError(502, "UNKNOWN", "HTTP 502");
+    expect(await send(e(), { failedToSendCode: "Senden fehlgeschlagen" })).toContain("Senden fehlgeschlagen");
+    cleanup();
+    expect(await send(e(), { somethingWentWrong: "Etwas ging schief" })).toContain("Etwas ging schief");
+    cleanup();
+    const raw = await send(e(), { emailHeading: "x" });
+    expect(raw).toContain("HTTP 502");
+  });
+
+  it("typed code fields apply only when supplied", async () => {
+    const e = () => new AuthError(404, "USER_NOT_FOUND", "No such user");
+    expect(await send(e(), { userNotFound: "Kein Konto." })).toContain("Kein Konto.");
+    cleanup();
+    expect(await send(e())).toContain("No such user");
+    cleanup();
+    const t = await send(new AuthError(401, "TOKEN_EXTRACTION_FAILED", "bad token"), { tokenExtractionFailed: "Anmeldung fehlgeschlagen." });
+    expect(t).toContain("Anmeldung fehlgeschlagen.");
+  });
+
+  it("error lookups are own-property only: a code named 'constructor' or 'toString' falls through to the server message", async () => {
+    expect(await send(new AuthError(400, "constructor", "ctor message"))).toContain("ctor message");
+    cleanup();
+    expect(await send(new AuthError(400, "toString", "ts message"))).toContain("ts message");
+  });
+
+  it("an explicit undefined (or null) in copy never blanks a default", () => {
+    const { container } = login({ copy: { emailHeading: undefined, emailLabel: null, errors: { X: undefined } } });
+    expect(container.textContent).toContain("Sign in to your account");
+    expect(container.textContent).toContain("Email address");
+  });
+
+  it("footerText={null} renders nothing, not the default footer", () => {
+    const { container } = login({ footerText: null });
+    expect(container.textContent).not.toContain("Need an account?");
+  });
+
+  it("the code input has an accessible name (default and override), and the inline error is announced and described", async () => {
+    const view = login();
+    await toOtpStep();
+    expect(screen.getByLabelText("Verification code")).toBeTruthy();
+    cleanup();
+    login({ copy: { codeInputAriaLabel: "Bestätigungscode" } });
+    await toOtpStep();
+    expect(screen.getByLabelText("Bestätigungscode")).toBeTruthy();
+    void view;
+  });
+
+  it("the email-step error is a role=alert referenced by the input", async () => {
+    const api = makeApi({ requestOtp: vi.fn().mockRejectedValueOnce(new AuthError(429, "OTP_RATE_LIMIT", "slow")) });
+    login({}, api);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "a@b.c" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.id).toBeTruthy();
+    expect(input.getAttribute("aria-describedby")).toBe(alert.id);
+  });
+
+  it("the defaults are frozen", () => {
+    expect(Object.isFrozen(DEFAULT_LOGIN_FORM_COPY)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_LOGIN_FORM_COPY.errors)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_REGISTER_FORM_COPY)).toBe(true);
   });
 });

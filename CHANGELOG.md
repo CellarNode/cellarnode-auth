@@ -5,16 +5,12 @@
 ## 0.21.0
 
 ### Added
-- **`copy` on `LoginForm` and `RegisterForm`** (CEL-2572): `Partial<LoginFormCopy>` / `Partial<RegisterFormCopy>` covering every user-visible string (headings, descriptions, labels, placeholders, buttons, Back, the expiry and resend countdowns, error and validation text). Omitted fields keep their English defaults, so existing consumers render unchanged. Placeholders (`{email}`, `{time}`, `{attempts}`, `{userType}`, `{role}`) are interpolated in a single pass with `interpolateCopy`; a value is inserted as text and never re-scanned. `copy.errors` overrides by `AuthError.code`. Exports `LoginFormCopy`, `RegisterFormCopy`, `DEFAULT_LOGIN_FORM_COPY`, `DEFAULT_REGISTER_FORM_COPY`, `interpolateCopy` from `@cellarnode/auth/react`. `footerText` still wins over `copy.footerText`. The dev-only sign-in control stays English (compiled out of production builds). `UnauthorizedPage` and `OtpConfirmationStep` already took `labels`.
+- **`copy` on `LoginForm` and `RegisterForm`** (CEL-2572): `Partial<LoginFormCopy>` / `Partial<RegisterFormCopy>` covering every user-visible string (headings, descriptions, labels, placeholders, buttons, Back, the expiry and resend countdowns, error and validation text). Omitted fields keep their English defaults, so existing consumers render the same text. Placeholder fields (`otpSentNotice`, `expiresIn`, `resendIn`, `invalidCode`, `wrongPortal`, and the register form's `accountCreatedDescription` / `registerAsDescription`) take a `{token}` string OR a function `(vars) => string`; the function form lets a host keep i18next-native `{{placeholders}}` and `count` plurals, which translation pipelines protect (a bare `{token}` can be translated away). `wrongPortal`'s function receives the raw portal type.
+- Error copy: `copy.errors` (by `AuthError.code`, own properties only) and typed fields `userNotFound`, `productFamilyNotAllowed`, `otpUserInvalid`, `tokenExtractionFailed`, `networkError`. These and the host's `failedTo*Code` / `somethingWentWrong` replace the raw (English) server message only when the host supplies them (a real network `TypeError` included); with no copy the behaviour is unchanged.
+- Exports `LoginFormCopy`, `RegisterFormCopy`, `CopyText`, `DEFAULT_LOGIN_FORM_COPY`, `DEFAULT_REGISTER_FORM_COPY` (frozen) from `@cellarnode/auth/react`. `footerText` (including `null`) still wins over `copy.footerText`. The dev-only sign-in control stays English (compiled out of production). `UnauthorizedPage` and `OtpConfirmationStep` already took `labels`.
+- The 6-digit code input now has an accessible name ("Verification code", `copy.codeInputAriaLabel`), matching `OtpConfirmationStep`; the inline error is a `role="alert"` and is referenced by the input (`aria-describedby`). Visible text is unchanged.
+- Tests: a sentinel completeness suite fails on any user-visible English left in either form once a full `copy` is passed; `typecheck` now also compiles the two copy test files.
 
-### Fixed
-- Producer, importer and e-label sign-in no longer stay English in zh and fr once the host passes `copy` (the hard-coded strings were the cause).
-
-### Added
-- `fetchImpl` config on `AuthStoreConfig` and `AuthClientConfig` (CEL-2208):
-  non-browser hosts (the CellarNode MCP server) inject a cookie-jar-aware
-  fetch for refresh/identity/client transport. Browsers are unchanged
-  (defaults to global fetch).
 
 ## 0.20.3
 

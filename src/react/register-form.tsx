@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { AuthApi } from "../types.js";
 import { AuthError } from "../types.js";
-import { interpolateCopy, resolveRegisterFormCopy, type RegisterFormCopy } from "./copy.js";
+import { renderCopy, resolveRegisterFormCopy, type RegisterFormCopy } from "./copy.js";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -84,7 +84,14 @@ export function RegisterForm({
           REGISTRATION_CLOSED: c.registrationClosed,
           INVITE_TOKEN_INVALID: c.inviteTokenInvalid,
         };
-        setError(c.errors[err.code] ?? known[err.code] ?? err.message);
+        const override = Object.hasOwn(c.errors, err.code) ? c.errors[err.code] : undefined;
+        const named = Object.hasOwn(known, err.code) ? known[err.code] : undefined;
+        // An unknown code shows the host's fallback when it supplied one (a default is never "supplied"), else the server's message.
+        setError(override ?? named ?? copy?.registrationFailed ?? err.message);
+      } else if (err instanceof TypeError && copy?.networkError) {
+        setError(copy.networkError);
+      } else if (copy?.registrationFailed) {
+        setError(copy.registrationFailed);
       } else {
         setError(err instanceof Error ? err.message : c.registrationFailed);
       }
@@ -99,7 +106,7 @@ export function RegisterForm({
         <div className="p-6 text-center">
           <h2 className="text-2xl font-semibold">{c.accountCreatedHeading}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {interpolateCopy(c.accountCreatedDescription, { email })}
+            {renderCopy(c.accountCreatedDescription, { email })}
           </p>
         </div>
         <div className="px-6 pb-6">
@@ -120,8 +127,9 @@ export function RegisterForm({
       <div className="p-6 text-center">
         <h2 className="text-2xl font-semibold">{c.heading}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          {interpolateCopy(c.registerAsDescription, {
+          {renderCopy(c.registerAsDescription, {
             role: userType === "importer" ? c.roleImporter : c.roleProducer,
+            userType,
           })}
         </p>
       </div>
@@ -177,7 +185,11 @@ export function RegisterForm({
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
           <button
             type="submit"
             disabled={isSubmitting}

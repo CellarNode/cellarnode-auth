@@ -39,7 +39,7 @@
     "check-exports": "npx publint && npx @arethetypeswrong/cli --pack . --profile esm-only",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "clsx": "^2.1.1"

@@ -37,7 +37,7 @@ export {
 export {
   DEFAULT_LOGIN_FORM_COPY,
   DEFAULT_REGISTER_FORM_COPY,
-  interpolateCopy,
+  type CopyText,
   type LoginFormCopy,
   type RegisterFormCopy,
 } from "./copy.js";
