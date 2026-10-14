@@ -388,7 +388,8 @@ describe("a throwing host function never breaks the form (falls back to the Engl
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on("unhandledRejection", onUnhandled);
+    const proc = (globalThis as unknown as { process: { on(e: string, f: (r: unknown) => void): void; off(e: string, f: (r: unknown) => void): void } }).process;
+    proc.on("unhandledRejection", onUnhandled);
     const api = makeApi({ verifyOtp: vi.fn().mockRejectedValue(new AuthError(400, "OTP_INVALID", "server English", 2)) });
     const onError = vi.fn();
     const { container } = login({ copy: { invalidCode: boom }, onError }, api);
@@ -399,7 +400,7 @@ describe("a throwing host function never breaks the form (falls back to the Engl
     await waitFor(() => expect(container.textContent).toContain("Invalid code. 2 attempt(s) remaining."));
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "OTP_INVALID", message: "Invalid code. 2 attempt(s) remaining." }));
     await new Promise((r) => setTimeout(r, 0));
-    process.off("unhandledRejection", onUnhandled);
+    proc.off("unhandledRejection", onUnhandled);
     expect(unhandled).toEqual([]);
     spy.mockRestore();
   });
