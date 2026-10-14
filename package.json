@@ -42,7 +42,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "clsx": "^2.1.0"
+    "clsx": "^2.1.1"
   },
   "peerDependencies": {
     "@react-three/fiber": ">=8.0.0",
@@ -81,18 +81,18 @@
   },
   "devDependencies": {
     "@react-three/fiber": ">=8.0.0",
-    "@testing-library/dom": "^10.0.0",
-    "@testing-library/react": "^16.0.0",
-    "@types/react": "^19.0.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.3.0",
     "@types/three": ">=0.160.0",
-    "esbuild": "^0.27.0",
-    "happy-dom": "^20.0.0",
+    "esbuild": "^0.27.7",
+    "happy-dom": "^20.14.5",
     "input-otp": ">=1.4.0",
     "lucide-react": ">=0.400.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "three": ">=0.160.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
   }
 }
