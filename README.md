@@ -94,6 +94,23 @@ validated user and organisation still match captured request authority.
 import { LoginForm, RegisterForm, UnauthorizedPage } from "@cellarnode/auth/react";
 ```
 
+### Localizing the forms (CEL-2572)
+
+`LoginForm` and `RegisterForm` take an optional `copy` prop (a `Partial<LoginFormCopy>` / `Partial<RegisterFormCopy>`) that covers every
+user-visible string: headings, descriptions, labels, placeholders, buttons, Back, the countdowns and the error text. A field you leave
+out keeps its English default, so nothing changes until you pass one. The defaults are exported (`DEFAULT_LOGIN_FORM_COPY`,
+`DEFAULT_REGISTER_FORM_COPY`). Placeholders are `{email}`, `{time}` (an mm:ss countdown), `{attempts}`, `{userType}` / `{role}`; they are
+filled in one pass and a value is never re-scanned. `copy.errors` overrides any `AuthError.code`, including ones this package does not
+know, and wins over the server's (English) message. `UnauthorizedPage` takes `labels` and `OtpConfirmationStep` takes `labels`
+(both existed before). The dev-only "Dev sign-in" control is not localizable (it is compiled out of production).
+
+```tsx
+<LoginForm
+  {...props}
+  copy={{ emailHeading: t("login.title"), otpSentNotice: t("login.otpSent"), /* "…{email}…" */ expiresIn: t("login.expires") /* "…{time}…" */ }}
+/>
+```
+
 ### Dev sign-in bypass (local development only)
 
 `LoginForm` renders an extra "Dev sign-in (skip the code)" control **beside** the

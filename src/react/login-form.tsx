@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import {
   AlertCircle,
@@ -13,6 +13,7 @@ import {
 import { clsx } from "clsx";
 import type { AuthApi, AuthStore } from "../types.js";
 import { AuthError } from "../types.js";
+import { interpolateCopy, resolveLoginFormCopy, type LoginFormCopy } from "./copy.js";
 import {
   InputOTP,
   InputOTPGroup,
@@ -42,8 +43,13 @@ export interface LoginFormProps {
   initialEmail?: string;
   theme?: "light" | "dark";
   onResendSuccess?: () => void;
-  /** Footer content shown on the email step. Accepts string or ReactNode. Defaults to "Need an account? Contact your CellarNode representative." */
+  /** Footer content shown on the email step. Accepts string or ReactNode. Defaults to `copy.footerText` ("Need an account? Contact your CellarNode representative."). */
   footerText?: React.ReactNode;
+  /**
+   * Localized text for every user-visible string (CEL-2572). Omitted fields keep their English defaults, so existing consumers are
+   * unchanged. See {@link LoginFormCopy} for the placeholders.
+   */
+  copy?: Partial<LoginFormCopy>;
   /** When true, footer shows a clickable register link (uses onNavigateRegister). When false, shows static footerText. Default: false */
   showRegisterInFooter?: boolean;
   /** Optional "Back" button handler shown in top-right corner */
@@ -66,7 +72,7 @@ type Step = "email" | "otp";
  * exists, a code is on its way. Exported for direct unit testing.
  */
 export function otpSentNotice(email: string): string {
-  return `If an account exists for ${email}, we've sent a code.`;
+  return interpolateCopy(resolveLoginFormCopy().otpSentNotice, { email });
 }
 
 function formatCountdown(target: string | null, fallback = "10:00") {
@@ -76,13 +82,6 @@ function formatCountdown(target: string | null, fallback = "10:00") {
   const seconds = String(Math.floor((diff % 60_000) / 1000)).padStart(2, "0");
   return `${minutes}:${seconds}`;
 }
-
-const ERROR_MESSAGES: Record<string, string> = {
-  OTP_RATE_LIMIT: "Too many code requests. Please wait before trying again.",
-  OTP_NOT_FOUND: "Code expired. Please request a new one.",
-  OTP_MAX_ATTEMPTS: "Too many failed attempts. Please request a new code.",
-  USER_DELETED: "This account has been deactivated. Contact support.",
-};
 
 export function LoginForm({
   userType,
@@ -96,11 +95,13 @@ export function LoginForm({
   initialEmail = "",
   theme = "light",
   onResendSuccess,
-  footerText = "Need an account? Contact your CellarNode representative.",
+  footerText,
   showRegisterInFooter = false,
   onBack,
   onError,
+  copy,
 }: LoginFormProps) {
+  const c = useMemo(() => resolveLoginFormCopy(copy), [copy]);
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
@@ -155,12 +156,25 @@ export function LoginForm({
   const stepIndex = step === "email" ? 0 : 1;
   const normalizedEmail = email.trim();
 
+  function wrongPortalMessage(): string {
+    return interpolateCopy(c.wrongPortal, {
+      userType: userType === "importer" ? c.userTypeImporter : c.userTypeProducer,
+    });
+  }
+
   function handleAuthError(err: unknown, fallbackMessage: string) {
     if (err instanceof AuthError) {
+      const known: Record<string, string> = {
+        OTP_RATE_LIMIT: c.rateLimit,
+        OTP_NOT_FOUND: c.codeExpired,
+        OTP_MAX_ATTEMPTS: c.maxAttempts,
+        USER_DELETED: c.userDeleted,
+      };
       const msg =
-        err.code === "OTP_INVALID"
-          ? `Invalid code. ${err.remainingAttempts ?? 0} attempt(s) remaining.`
-          : ERROR_MESSAGES[err.code] ?? err.message ?? "Something went wrong";
+        c.errors[err.code] ??
+        (err.code === "OTP_INVALID"
+          ? interpolateCopy(c.invalidCode, { attempts: err.remainingAttempts ?? 0 })
+          : (known[err.code] ?? err.message ?? c.somethingWentWrong));
 
       // Side effects for specific error codes
       if (err.code === "OTP_NOT_FOUND" || err.code === "OTP_MAX_ATTEMPTS") {
@@ -201,7 +215,7 @@ export function LoginForm({
       setStep("otp");
       setCode("");
     } catch (err) {
-      handleAuthError(err, "Failed to send code");
+      handleAuthError(err, c.failedToSendCode);
     } finally {
       setIsSubmitting(false);
     }
@@ -216,7 +230,7 @@ export function LoginForm({
       const result = await authApi.verifyOtp(normalizedEmail, code);
 
       if (result.user.userType !== userType) {
-        const msg = `This portal is for ${userType} accounts only.`;
+        const msg = wrongPortalMessage();
         setError(msg);
         if (onError) onError({ code: "USER_TYPE_MISMATCH", message: msg, authenticatedUserType: result.user.userType ?? undefined });
         authStore.clearAccessToken();
@@ -226,7 +240,7 @@ export function LoginForm({
       authStore.setAccessToken(result.accessToken, result.expiresIn);
       onLoginSuccess();
     } catch (err) {
-      handleAuthError(err, "Invalid code");
+      handleAuthError(err, c.failedToVerifyCode);
       setCode("");
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 500);
@@ -333,7 +347,7 @@ export function LoginForm({
       setCode("");
       onResendSuccess?.();
     } catch (err) {
-      handleAuthError(err, "Failed to resend code");
+      handleAuthError(err, c.failedToResendCode);
     } finally {
       setIsSubmitting(false);
     }
@@ -368,7 +382,7 @@ export function LoginForm({
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="size-3.5" />
-              Back
+              {c.back}
             </button>
           )}
         </div>
@@ -392,18 +406,18 @@ export function LoginForm({
             {/* Invite context banner */}
             {inviteMode && step === "email" && (
               <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm/6 text-foreground">
-                Signing in to accept your organization invitation.
+                {c.inviteBanner}
               </div>
             )}
 
             {/* Heading */}
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              {step === "email" ? "Sign in to your account" : "Check your email"}
+              {step === "email" ? c.emailHeading : c.otpHeading}
             </h1>
             <p className="mt-2 text-sm/6 text-muted-foreground">
               {step === "email"
-                ? "Enter your work email to receive a one-time access code."
-                : otpSentNotice(normalizedEmail)}
+                ? c.emailDescription
+                : interpolateCopy(c.otpSentNotice, { email: normalizedEmail })}
             </p>
 
             {/* Forms */}
@@ -415,12 +429,12 @@ export function LoginForm({
                       htmlFor="email"
                       className="text-sm font-medium leading-none"
                     >
-                      Email address
+                      {c.emailLabel}
                     </label>
                     <input
                       id="email"
                       type="email"
-                      placeholder="you@company.com"
+                      placeholder={c.emailPlaceholder}
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       required
@@ -456,7 +470,7 @@ export function LoginForm({
                     ) : (
                       <ArrowRight className="mr-2 size-4" />
                     )}
-                    Continue
+                    {c.continue}
                   </button>
                 </form>
               ) : (
@@ -465,7 +479,7 @@ export function LoginForm({
                   <div className="flex justify-center">
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
                       <Clock3 className="size-3" />
-                      Expires in {countdown}
+                      {interpolateCopy(c.expiresIn, { time: countdown })}
                     </div>
                   </div>
 
@@ -519,7 +533,7 @@ export function LoginForm({
                     ) : (
                       <CheckCircle2 className="mr-2 size-4" />
                     )}
-                    Verify
+                    {c.verify}
                   </button>
 
                   <div className="flex items-center justify-between text-sm">
@@ -534,7 +548,7 @@ export function LoginForm({
                     >
                       <span className="inline-flex items-center gap-1">
                         <ArrowLeft className="size-3.5" />
-                        Change email
+                        {c.changeEmail}
                       </span>
                     </button>
                     <button
@@ -543,7 +557,7 @@ export function LoginForm({
                       onClick={handleResend}
                       disabled={isSubmitting || !canResend}
                     >
-                      {canResend ? "Resend code" : `Resend in ${resendCountdown}`}
+                      {canResend ? c.resendCode : interpolateCopy(c.resendIn, { time: resendCountdown })}
                     </button>
                   </div>
                 </form>
@@ -571,17 +585,17 @@ export function LoginForm({
               <p className="mt-8 text-center text-sm text-muted-foreground">
                 {showRegisterInFooter && onNavigateRegister ? (
                   <>
-                    Need an account?{" "}
+                    {c.needAccount}{" "}
                     <button
                       type="button"
                       onClick={onNavigateRegister}
                       className="text-primary transition-colors hover:text-primary/80"
                     >
-                      Register here
+                      {c.registerHere}
                     </button>
                   </>
                 ) : (
-                  footerText
+                  (footerText ?? c.footerText)
                 )}
               </p>
             )}

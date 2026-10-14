@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## 0.21.0
+
+### Added
+- **`copy` on `LoginForm` and `RegisterForm`** (CEL-2572): `Partial<LoginFormCopy>` / `Partial<RegisterFormCopy>` covering every user-visible string (headings, descriptions, labels, placeholders, buttons, Back, the expiry and resend countdowns, error and validation text). Omitted fields keep their English defaults, so existing consumers render unchanged. Placeholders (`{email}`, `{time}`, `{attempts}`, `{userType}`, `{role}`) are interpolated in a single pass with `interpolateCopy`; a value is inserted as text and never re-scanned. `copy.errors` overrides by `AuthError.code`. Exports `LoginFormCopy`, `RegisterFormCopy`, `DEFAULT_LOGIN_FORM_COPY`, `DEFAULT_REGISTER_FORM_COPY`, `interpolateCopy` from `@cellarnode/auth/react`. `footerText` still wins over `copy.footerText`. The dev-only sign-in control stays English (compiled out of production builds). `UnauthorizedPage` and `OtpConfirmationStep` already took `labels`.
+
+### Fixed
+- Producer, importer and e-label sign-in no longer stay English in zh and fr once the host passes `copy` (the hard-coded strings were the cause).
+
 ### Added
 - `fetchImpl` config on `AuthStoreConfig` and `AuthClientConfig` (CEL-2208):
   non-browser hosts (the CellarNode MCP server) inject a cookie-jar-aware
