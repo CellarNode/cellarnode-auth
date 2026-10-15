@@ -94,6 +94,37 @@ validated user and organisation still match captured request authority.
 import { LoginForm, RegisterForm, UnauthorizedPage } from "@cellarnode/auth/react";
 ```
 
+### Localizing the forms (CEL-2572)
+
+`LoginForm` and `RegisterForm` take an optional `copy` prop (a `Partial<LoginFormCopy>` / `Partial<RegisterFormCopy>`) covering every
+user-visible string: headings, descriptions, labels, placeholders, buttons, Back, the countdowns, the code input's accessible name
+and the error text. `copy` fields are flat strings or functions the package calls for you (use `labels` on `UnauthorizedPage` and
+`OtpConfirmationStep` for their `ReactNode`/function fields). A field you leave out keeps its English default; the defaults are
+exported (`DEFAULT_LOGIN_FORM_COPY`, `DEFAULT_REGISTER_FORM_COPY`, frozen), and an explicit `undefined` never blanks one.
+
+Fields with a placeholder (`otpSentNotice`, `expiresIn`, `resendIn`, `invalidCode`, `wrongPortal`, and the register form's
+`accountCreatedDescription` / `registerAsDescription`) accept a string with `{email}` / `{time}` / `{attempts}` / `{userType}` tokens
+or a **function** that receives the values. **Prefer the function form behind a translation pipeline**: a tool that only protects
+`{{name}}` may translate a bare `{name}` away, whereas `({ email }) => t("key", { email })` (and `count` for plurals) keeps i18next's
+native syntax. The function's result is rendered as text. `wrongPortal`'s function receives the raw portal type so you can return a
+whole sentence per type.
+
+Errors: `copy.errors` overrides by `AuthError.code` (own properties only), and typed fields (`userNotFound`,
+`productFamilyNotAllowed`, `otpUserInvalid`, `tokenExtractionFailed`, `networkError`) apply only when you supply them; without them
+the server's (English) message is shown, exactly as before. A supplied `failedTo*Code` / `somethingWentWrong` also replaces the raw
+message of an unknown code. The dev-only "Dev sign-in" control is not localizable (it is compiled out of production).
+
+```tsx
+<LoginForm
+  {...props}
+  copy={{
+    emailHeading: t("login.title"),
+    otpSentNotice: ({ email }) => t("login.otpSent", { email }),
+    invalidCode: ({ attempts }) => t("login.invalidCode", { count: attempts }),
+  }}
+/>
+```
+
 ### Dev sign-in bypass (local development only)
 
 `LoginForm` renders an extra "Dev sign-in (skip the code)" control **beside** the
