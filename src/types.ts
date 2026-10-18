@@ -86,8 +86,36 @@ export class AuthError extends Error {
   }
 }
 
+/** Provider state only; local identity and permissions always come from /auth/me. */
+export interface ExternalSessionSnapshot {
+  /** Monotonically increases on every user, organisation, or session change, including A → B → A. */
+  revision: number;
+  status: "loading" | "signed-out" | "ready";
+}
+
+export interface ExternalSessionCredential {
+  token: string;
+  /** Absolute Unix timestamp in milliseconds, used only for renewal scheduling. */
+  expiresAt: number;
+}
+
+export interface ExternalSessionSource {
+  getSnapshot(): ExternalSessionSnapshot;
+  /** Notify synchronously on revision/status changes; return an unsubscribe function. */
+  subscribe(listener: () => void): () => void;
+  getCredential(options: { skipCache: boolean; signal: AbortSignal }): Promise<ExternalSessionCredential | null>;
+  /** Capture the target session before awaiting; never sign out a newly selected session. */
+  logout(): Promise<void>;
+  /** Omit when the provider cannot revoke all sessions. Capture the target user before awaiting. */
+  revokeAll?(): Promise<{ revokedSessions: number }>;
+}
+
 export interface AuthStoreConfig {
   baseUrl: string;
+  /** Opt in to provider credentials; omission preserves legacy cookie/OTP behavior. */
+  sessionSource?: ExternalSessionSource;
+  /** Disposes provider subscription and invalidates pending external work when aborted. */
+  lifecycleSignal?: AbortSignal;
   /**
    * Fetch implementation used for all store transport (refresh, revalidate,
    * identity, dev login). Non-browser hosts (the MCP server) inject a

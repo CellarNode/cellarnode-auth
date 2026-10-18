@@ -1,3 +1,4 @@
+import { matchesExternalContinuity, rememberExternalContinuity } from "./external-session.js";
 import type {
   AuthStore,
   ResolveSessionOptions,
@@ -30,7 +31,8 @@ export function captureSessionContinuity(
   ) {
     return null;
   }
-  return { token, userId, orgId };
+  const continuity = { token, userId, orgId };
+  return rememberExternalContinuity(store, continuity) ? continuity : null;
 }
 
 /** Permit 401 replay only across same validated user and organisation. */
@@ -42,6 +44,7 @@ export function canReplaySession(
   const current = captureSessionContinuity(store);
   return (
     before !== null &&
+    matchesExternalContinuity(store, before) &&
     after.status === "ready" &&
     current !== null &&
     current.token === after.token &&
@@ -63,7 +66,7 @@ export async function resolveSessionForReplay(
   before: SessionContinuity | null,
   options: Pick<ResolveSessionOptions, "signal"> = {},
 ): Promise<SessionResolution> {
-  if (!before) return { status: "superseded" };
+  if (!before || !matchesExternalContinuity(store, before)) return { status: "superseded" };
 
   const currentToken = store.getAccessToken();
   const currentState = store.getSessionState?.();
