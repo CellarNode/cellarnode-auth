@@ -1,6 +1,6 @@
 {
   "name": "@cellarnode/auth",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Shared OTP-based authentication \u2014 token store, API client, React UI components for CellarNode dashboards.",
   "license": "UNLICENSED",
   "type": "module",
@@ -19,6 +19,14 @@
     "./react": {
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
+    },
+    "./clerk": {
+      "types": "./dist/clerk/source.d.ts",
+      "default": "./dist/clerk/source.js"
+    },
+    "./clerk/react": {
+      "types": "./dist/clerk/react-bridge.d.ts",
+      "default": "./dist/clerk/react-bridge.js"
     }
   },
   "types": "./dist/index.d.ts",
