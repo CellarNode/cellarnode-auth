@@ -128,17 +128,18 @@ describe("Clerk external session source", () => {
     expect(detached.revision).toBeGreaterThan(previousRevision);
   });
 
-  test("listener reentrancy observes each synchronous provider revision", () => {
+  test("listener reentrancy observes each synchronous provider revision and retains the newest resources", async () => {
     const source = createClerkSessionSource();
     const seen: ExternalSessionSnapshot[] = [];
     let provider: ReturnType<typeof fakeClerk> | null = null;
     let switched = false;
+    const newer = resources("s-b", "user-b", "org-b", jwt(Math.floor((Date.now() + 180_000) / 1000)));
     source.subscribe(() => {
       const next = source.getSnapshot();
       seen.push(next);
       if (!switched && next.status === "ready") {
         switched = true;
-        provider?.emit(resources("s-b", "user-b", "org-b"));
+        provider?.emit(newer);
       }
     });
     provider = attach(source, resources(null));
@@ -148,6 +149,41 @@ describe("Clerk external session source", () => {
       source.getSnapshot().revision,
     ]);
     expect(source.getSnapshot().status).toBe("ready");
+    await source.getCredential({ skipCache: false, signal: new AbortController().signal });
+    expect(newer.session?.getToken).toHaveBeenCalledOnce();
+  });
+
+  test("readiness ABA fences a pending credential even when identity IDs stay unchanged", async () => {
+    const source = createClerkSessionSource();
+    const state = resources("s-a");
+    let finish!: (token: string) => void;
+    vi.mocked(state.session!.getToken).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const provider = attach(source, state);
+    const pendingCredential = source.getCredential({ skipCache: false, signal: new AbortController().signal });
+    const pendingState = resources("s-a");
+    (pendingState.session as unknown as { status: string }).status = "pending";
+    provider.emit(pendingState);
+    provider.emit(resources("s-a"));
+    finish(jwt());
+    await expect(pendingCredential).resolves.toBeNull();
+  });
+
+  test("readiness ABA stops a pending all-session revocation before writes", async () => {
+    const source = createClerkSessionSource();
+    const state = resources("s-a");
+    let finish!: (sessions: unknown[]) => void;
+    (state.user as unknown as { getSessions: () => Promise<unknown[]> }).getSessions = () =>
+      new Promise((resolve) => { finish = resolve; });
+    const provider = attach(source, state);
+    const revocation = source.revokeAll!();
+    const pendingState = resources("s-a");
+    (pendingState.session as unknown as { status: string }).status = "pending";
+    provider.emit(pendingState);
+    provider.emit(resources("s-a"));
+    const revoke = vi.fn();
+    finish([{ id: "s-a", revoke }]);
+    await expect(revocation).rejects.toThrow("Clerk user changed");
+    expect(revoke).not.toHaveBeenCalled();
   });
 
   test("logout rejects when Clerk cannot end the captured session", async () => {

@@ -85,8 +85,9 @@ export function createClerkSessionSource(): ClerkSessionSource {
         const ready = nextClerk.loaded && nextClerk.status === "ready" &&
           session?.status === "active" && user != null && organization != null &&
           session.user?.id === user.id;
-        publish({ revision: snapshot.revision + (changed ? 1 : 0), status: ready ? "ready" : signedOut ? "signed-out" : "loading" });
-        if (ready) resources = nextResources;
+        const status = ready ? "ready" : signedOut ? "signed-out" : "loading";
+        const readinessChanged = status !== snapshot.status;
+        publish({ revision: snapshot.revision + (changed || readinessChanged ? 1 : 0), status });
       };
       const unsubscribe = nextClerk.addListener(onResources);
       if (clerk === nextClerk && attachment === targetAttachment) unsubscribeClerk = unsubscribe;
