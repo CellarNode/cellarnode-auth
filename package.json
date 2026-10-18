@@ -1,7 +1,7 @@
 {
   "name": "@cellarnode/auth",
   "version": "0.21.0",
-  "description": "Shared OTP-based authentication \u2014 token store, API client, React UI components for CellarNode dashboards.",
+  "description": "Shared OTP-based authentication — token store, API client, React UI components for CellarNode dashboards.",
   "license": "UNLICENSED",
   "type": "module",
   "repository": {
@@ -45,6 +45,7 @@
     "clsx": "^2.1.1"
   },
   "peerDependencies": {
+    "@clerk/react": "6.17.8",
     "@react-three/fiber": ">=8.0.0",
     "input-otp": ">=1.4.0",
     "lucide-react": ">=0.400.0",
@@ -54,6 +55,9 @@
     "three": ">=0.160.0"
   },
   "peerDependenciesMeta": {
+    "@clerk/react": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },
@@ -80,6 +84,7 @@
     "node": ">=20.19.0"
   },
   "devDependencies": {
+    "@clerk/react": "6.17.8",
     "@react-three/fiber": ">=8.0.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
