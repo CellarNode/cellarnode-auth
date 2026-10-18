@@ -1,0 +1,21 @@
+src/clerk/source.ts
+  s_e08c290cfdeacc::t_feccce7141a392 88-90
+__tests__/clerk-session-source.test.tsx
+  s_e08c290cfdeacc::t_feccce7141a392 131,136,142,152-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d859df4ac09d73a5700852682dda76eadc60315",
+  "prompts": {},
+  "sessions": {
+    "s_e08c290cfdeacc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14e81-48ad-7c13-ab0a-c14241945059",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
