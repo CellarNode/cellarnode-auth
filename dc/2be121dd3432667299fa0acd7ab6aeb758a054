@@ -1,0 +1,21 @@
+package.json
+  s_e08c290cfdeacc::t_bc205a76b37f67 4,48,58-60,87
+package-lock.json
+  s_e08c290cfdeacc::t_6106c1d5e0de82 15,36,46-48,107-152,1088-1098,1567-1573,1638-1644,1962-1968
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dc2be121dd3432667299fa0acd7ab6aeb758a054",
+  "prompts": {},
+  "sessions": {
+    "s_e08c290cfdeacc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14e81-48ad-7c13-ab0a-c14241945059",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
