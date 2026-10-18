@@ -1,3 +1,4 @@
+import { acceptsExternalResponse, externalSessionFor } from "./external-session.js";
 import { AuthError } from "./types.js";
 import type { AuthClientConfig, AuthClient, AuthErrorResponse } from "./types.js";
 import {
@@ -56,6 +57,15 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         headers.set("Content-Type", "application/json");
       }
 
+      const readSuccess = async (response: Response): Promise<T> => {
+        const data = await response.json() as T;
+        if (!skipAuth && !acceptsExternalResponse(store, continuity)) {
+          if (init.signal?.aborted) throw new DOMException("Request aborted", "AbortError");
+          throw new AuthError(409, "SESSION_SUPERSEDED", "Response session was superseded");
+        }
+        return data;
+      };
+
       const retryWithToken = async (token: string): Promise<T> => {
         headers.set("Authorization", `Bearer ${token}`);
         const retryRes = await fetchAuthRequest(
@@ -64,11 +74,11 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
           {
             ...init,
             headers,
-            credentials: "include",
+            credentials: externalSessionFor(store) ? "omit" : "include",
           },
           fetchImpl,
         );
-        if (retryRes.ok) return (await retryRes.json()) as T;
+        if (retryRes.ok) return readSuccess(retryRes);
 
         const retryError = await parseErrorResponse(retryRes);
         throw new AuthError(
@@ -85,13 +95,13 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         {
           ...init,
           headers,
-          credentials: "include",
+          credentials: externalSessionFor(store) ? "omit" : "include",
         },
         fetchImpl,
       );
 
       if (res.ok) {
-        return (await res.json()) as T;
+        return readSuccess(res);
       }
 
       // 401: refresh once. Replay only when validated user + tenant continuity
