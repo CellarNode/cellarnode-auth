@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## 0.23.1
+
+### Fixed
+- Active Clerk sessions without a selected organisation can resolve the existing local account instead of remaining in loading (CEL-2730). Pending and mismatched sessions remain unavailable. Organisation transitions still invalidate credentials, and local `/auth/me` remains the authority for identity and workspace permissions.
+
 ## 0.21.0
 
 ### Added

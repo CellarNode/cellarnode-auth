@@ -80,10 +80,9 @@ export function createClerkSessionSource(): ClerkSessionSource {
 
         const session = nextResources.session;
         const user = nextResources.user;
-        const organization = nextResources.organization;
         const signedOut = nextClerk.loaded && nextClerk.status === "ready" && session === null && user === null;
         const ready = nextClerk.loaded && nextClerk.status === "ready" &&
-          session?.status === "active" && user != null && organization != null &&
+          session?.status === "active" && user != null &&
           session.user?.id === user.id;
         const status = ready ? "ready" : signedOut ? "signed-out" : "loading";
         const readinessChanged = status !== snapshot.status;

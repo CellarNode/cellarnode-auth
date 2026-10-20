@@ -59,7 +59,7 @@ function attach(source: ClerkSessionSource, state: Resources) {
 afterEach(() => cleanup());
 
 describe("Clerk external session source", () => {
-  test("starts loading; only ready active user, session, and org become ready", () => {
+  test("starts loading; only ready active matching user and session become ready", () => {
     const source = createClerkSessionSource();
     expect(source.getSnapshot()).toEqual({ revision: 0, status: "loading" });
     const provider = attach(source, resources(null));
@@ -74,6 +74,10 @@ describe("Clerk external session source", () => {
     provider.emit(resources("pending"));
     expect(source.getSnapshot().status).toBe("ready");
     provider.emit(resources("pending", "user-a", null));
+    expect(source.getSnapshot().status).toBe("ready");
+    const mismatched = resources("pending");
+    (mismatched.session as unknown as { user: { id: string } }).user = { id: "user-b" };
+    provider.emit(mismatched);
     expect(source.getSnapshot().status).toBe("loading");
     provider.detach();
     expect(source.getSnapshot().status).toBe("loading");
@@ -89,6 +93,30 @@ describe("Clerk external session source", () => {
     const nextRevision = source.getSnapshot().revision;
     provider.emit(resources("s-a", "user-a", "org-a"));
     expect(source.getSnapshot().revision).toBe(nextRevision + 1);
+    const organizationRevision = source.getSnapshot().revision;
+    provider.emit(resources("s-a", "user-a", null));
+    expect(source.getSnapshot()).toEqual({ revision: organizationRevision + 1, status: "ready" });
+    provider.emit(resources("s-a", "user-a", "org-a"));
+    expect(source.getSnapshot()).toEqual({ revision: organizationRevision + 2, status: "ready" });
+  });
+
+  test("identity-only users receive credentials and organization changes fence stale tokens", async () => {
+    const source = createClerkSessionSource();
+    const token = jwt();
+    const provider = attach(source, resources("s-a", "user-a", null, token));
+    expect(source.getSnapshot().status).toBe("ready");
+    await expect(source.getCredential({ skipCache: false, signal: new AbortController().signal }))
+      .resolves.toMatchObject({ token, expiresAt: expect.any(Number) });
+
+    let finish!: (token: string | null) => void;
+    const identityOnly = resources("s-a", "user-a", null);
+    vi.mocked(identityOnly.session!.getToken).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    provider.emit(identityOnly);
+    const pendingCredential = source.getCredential({ skipCache: false, signal: new AbortController().signal });
+    provider.emit(resources("s-a", "user-a", "org-a"));
+    finish(jwt());
+    await expect(pendingCredential).resolves.toBeNull();
+    expect(source.getSnapshot().status).toBe("ready");
   });
 
   test("returns a bounded credential and rejects expiry, aborts, and late results", async () => {
