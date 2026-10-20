@@ -1,3 +1,4 @@
+import { externalSessionFor, unsupportedExternalOperation } from "./external-session.js";
 import { AuthError } from "./types.js";
 import type {
   AuthApi,
@@ -16,9 +17,11 @@ export function createAuthApi(config: {
   store: AuthStore;
 }): AuthApi {
   const { client, store } = config;
+  const external = externalSessionFor(store);
 
   return {
     async register(input: RegisterInput) {
+      if (external) throw unsupportedExternalOperation("register");
       return client.fetch<{ userId: string; message?: string }>(
         "/auth/register",
         {
@@ -30,6 +33,7 @@ export function createAuthApi(config: {
     },
 
     async requestOtp(email: string) {
+      if (external) throw unsupportedExternalOperation("requestOtp");
       return client.fetch<RequestOtpResponse>("/auth/request-otp", {
         method: "POST",
         skipAuth: true,
@@ -38,6 +42,7 @@ export function createAuthApi(config: {
     },
 
     async verifyOtp(email: string, code: string) {
+      if (external) throw unsupportedExternalOperation("verifyOtp");
       const raw = await client.fetch<Record<string, unknown>>(
         "/auth/verify-otp",
         {
@@ -82,6 +87,10 @@ export function createAuthApi(config: {
     },
 
     async logout() {
+      if (external) {
+        await external.endSession(() => external.source.logout());
+        return;
+      }
       const token = store.getAccessToken();
       await client.fetch<void>("/auth/logout", {
         method: "POST",
@@ -100,6 +109,10 @@ export function createAuthApi(config: {
     // A 401 means the access token is already dead, so local state is still
     // cleared before the error propagates.
     async signOutEverywhere() {
+      if (external) {
+        if (!external.source.revokeAll) throw unsupportedExternalOperation("signOutEverywhere");
+        return external.endSession(() => external.source.revokeAll!());
+      }
       const token = store.getAccessToken();
       try {
         const raw = await client.fetch<{
@@ -128,9 +141,12 @@ export function createAuthApi(config: {
     },
 
     async getMe(token?: string) {
+      if (external && token !== undefined && token !== store.getAccessToken()) {
+        throw unsupportedExternalOperation("getMe with an unmanaged credential");
+      }
       const currentToken = store.getAccessToken();
       const explicitCurrentToken = token !== undefined && token === currentToken;
-      if (store.resolveSession && token === undefined) {
+      if (store.resolveSession && (token === undefined || external)) {
         const resolution = await store.resolveSession();
         if (resolution.status === "ready") return resolution.user;
         if (resolution.status === "unauthorized") {

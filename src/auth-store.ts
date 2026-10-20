@@ -1,3 +1,4 @@
+import { bindExternalSession, unsupportedExternalOperation } from "./external-session.js";
 import { copyAuthUser, parseAuthUser } from "./auth-user.js";
 import { extractAccessToken } from "./extract-token.js";
 import { fetchAuthRequest } from "./auth-transport.js";
@@ -9,6 +10,7 @@ import type {
   ConcreteAuthStore,
   DevLoginFailure,
   DevLoginResult,
+  ExternalSessionSnapshot,
   LogoutListener,
   OrgChangeListener,
   ResolveSessionOptions,
@@ -131,6 +133,8 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     refreshBuffer = 60,
     resolutionTimeoutMs = DEFAULT_RESOLUTION_TIMEOUT_MS,
     productFamily = null,
+    sessionSource,
+    lifecycleSignal,
   } = config;
   const requestTimeoutMs =
     Number.isFinite(resolutionTimeoutMs) && resolutionTimeoutMs > 0
@@ -168,6 +172,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   let memoryLastConfirmedRotationAt: number | null = null;
 
   function localStorageOrNull(): Storage | null {
+    if (sessionSource) return null;
     try {
       return typeof localStorage === "undefined" ? null : localStorage;
     } catch {
@@ -473,8 +478,11 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     renewalRetryAttempt = 0;
     // A rotation was confirmed (or a new credential adopted): record it for
     // every tab; it clears any uncertainty that predates its send.
-    recordConfirmedRotation(confirmedSentAt);
-    const delay = Math.max((expiresInSeconds - refreshBuffer) * 1000, 0);
+    if (!sessionSource) recordConfirmedRotation(confirmedSentAt);
+    const buffer = sessionSource
+      ? Math.min(Math.max(refreshBuffer, 0), expiresInSeconds / 2)
+      : refreshBuffer;
+    const delay = Math.max((expiresInSeconds - buffer) * 1000, sessionSource ? 1 : 0);
     refreshTimer = setTimeout(() => {
       void store.resolveSession({ refresh: true });
     }, delay);
@@ -563,28 +571,43 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   function withResolutionTimeout<T>(
     operation: (signal: AbortSignal) => Promise<T>,
     timeoutMs: number = requestTimeoutMs,
+    parentSignal?: AbortSignal,
   ): Promise<T> {
     const controller = new AbortController();
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         controller.abort();
+        parentSignal?.removeEventListener("abort", onAbort);
         reject(new ResolutionTimeoutError());
       }, timeoutMs);
+      const onAbort = () => {
+        clearTimeout(timer);
+        controller.abort();
+        reject(new ResolutionTimeoutError());
+      };
+      if (parentSignal?.aborted) {
+        onAbort();
+        return;
+      }
+      parentSignal?.addEventListener("abort", onAbort, { once: true });
       let pending: Promise<T>;
       try {
         pending = operation(controller.signal);
       } catch (error) {
         clearTimeout(timer);
+        parentSignal?.removeEventListener("abort", onAbort);
         reject(error);
         return;
       }
       void pending.then(
         (value) => {
           clearTimeout(timer);
+          parentSignal?.removeEventListener("abort", onAbort);
           resolve(value);
         },
         (error: unknown) => {
           clearTimeout(timer);
+          parentSignal?.removeEventListener("abort", onAbort);
           reject(error);
         },
       );
@@ -608,15 +631,16 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
       );
       const raw = response.ok ? await response.json() : null;
       return { response, raw };
-    }, timeoutMs);
+    }, timeoutMs, init.signal ?? undefined);
   }
 
-  async function fetchIdentity(token: string): Promise<IdentityRead> {
+  async function fetchIdentity(token: string, signal?: AbortSignal): Promise<IdentityRead> {
     let result: { response: Response; raw: unknown };
     try {
       result = await fetchResolutionResponse("/auth/me", {
         method: "GET",
-        credentials: "include",
+        signal,
+        credentials: sessionSource ? "omit" : "include",
         headers: { Authorization: `Bearer ${token}` },
       });
     } catch {
@@ -638,6 +662,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
   function clearCurrentGeneration(
     generation: number,
     reason?: SessionEndReason,
+    nextState?: SessionState,
   ): boolean {
     if (generation !== tokenGeneration) return false;
     // CEL-2123 — the session this hold was deciding for is over.
@@ -668,7 +693,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     // server-confirmed logout (`endSessionUncertainty`) may end it.
     accessTokenExpiresAt = null;
     publishSessionState(
-      reason ? { status: "unauthorized", reason } : { status: "unauthorized" },
+      nextState ?? (reason ? { status: "unauthorized", reason } : { status: "unauthorized" }),
     );
     if (tokenGeneration !== clearedGeneration || accessToken !== null) return false;
     emitAccessTokenSet(
@@ -1096,6 +1121,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     generation: number,
     baseline: ReadyBaseline | null,
   ): Promise<SessionResolution> {
+    if (sessionSource) return runExternalSession(true);
     if (refreshFlight) return refreshFlight.promise;
     if (generation !== tokenGeneration) {
       return Promise.resolve({ status: "superseded" });
@@ -1335,6 +1361,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
    * deadline/timer — never calls scheduleRefresh with a fresh TTL.
    */
   function runRevalidate(generation: number): Promise<SessionResolution> {
+    if (sessionSource) return runExternalSession(true);
     if (authorityFlight) return authorityFlight.promise;
     if (refreshFlight) return refreshFlight.promise;
     if (explicitAdoptionFlight) return explicitAdoptionFlight.promise;
@@ -1461,6 +1488,100 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     return promise;
   }
 
+  let externalSnapshot: ExternalSessionSnapshot | null = null;
+  let externalController: AbortController | null = null;
+  let externalDisposed = false;
+  let externalEndedRevision: number | null = null;
+
+  function syncExternalSnapshot(): ExternalSessionSnapshot {
+    let next: ExternalSessionSnapshot;
+    try {
+      next = { ...sessionSource!.getSnapshot() };
+    } catch {
+      next = { revision: externalSnapshot?.revision ?? 0, status: "loading" };
+    }
+    if (next.revision !== externalSnapshot?.revision || next.status !== externalSnapshot?.status) {
+      externalSnapshot = next;
+      externalController?.abort();
+      supersedeExplicitAdoption();
+      clearCurrentGeneration(tokenGeneration, undefined, next.status === "signed-out"
+        ? { status: "unauthorized" }
+        : { status: "unavailable", token: null });
+    }
+    return next;
+  }
+
+  // Uses the existing flight, generation, publication and caller-cancellation engine.
+  // Provider revision changes are session boundaries; renewal within a revision is not.
+  function runExternalSession(skipCache: boolean): Promise<SessionResolution> {
+    if (externalDisposed) return Promise.resolve({ status: "superseded" });
+    const snapshot = syncExternalSnapshot();
+    if (snapshot.status === "signed-out" || externalEndedRevision === snapshot.revision) {
+      return Promise.resolve({ status: "unauthorized" });
+    }
+    if (snapshot.status !== "ready") {
+      return Promise.resolve(markUnavailable(tokenGeneration, accessToken));
+    }
+    if (refreshFlight) return refreshFlight.promise;
+    if (!skipCache && sessionState.status === "ready" && accessTokenExpiresAt !== null && accessTokenExpiresAt > Date.now()) {
+      return Promise.resolve(copyResolution(sessionState));
+    }
+    const baseline = currentBaseline();
+    const generation = ++tokenGeneration;
+    const controller = new AbortController();
+    externalController = controller;
+    let settle!: (resolution: SessionResolution) => void;
+    const promise = new Promise<SessionResolution>((resolve) => { settle = resolve; });
+    const flight: RefreshFlight = { generation, promise };
+    refreshFlight = flight;
+    const isCurrent = () => {
+      const current = syncExternalSnapshot();
+      return !externalDisposed && !controller.signal.aborted && generation === tokenGeneration &&
+        current.revision === snapshot.revision && current.status === "ready";
+    };
+    if (!beginResolving(generation, accessToken, baseline)) {
+      if (refreshFlight === flight) refreshFlight = null;
+      settle({ status: "superseded" });
+      return promise;
+    }
+    void (async (): Promise<SessionResolution> => {
+      try {
+        const credential = await withResolutionTimeout(
+          (signal) => sessionSource!.getCredential({ skipCache, signal }),
+          requestTimeoutMs,
+          controller.signal,
+        );
+        if (!isCurrent()) return { status: "superseded" };
+        if (!credential || typeof credential.token !== "string" || !credential.token.trim() ||
+          !Number.isFinite(credential.expiresAt) || credential.expiresAt <= Date.now()) {
+          return markUnavailable(generation, accessToken);
+        }
+        const read = await fetchIdentity(credential.token, controller.signal);
+        if (!isCurrent()) return { status: "superseded" };
+        if (read.status === "unauthorized") {
+          return clearCurrentGeneration(generation) ? { status: "unauthorized" } : { status: "superseded" };
+        }
+        if (read.status !== "ready" || credential.expiresAt <= Date.now()) {
+          return markUnavailable(generation, accessToken);
+        }
+        if (baseline && (baseline.user.id !== read.user.id || baseline.user.orgId !== read.user.orgId)) {
+          return clearCurrentGeneration(generation, "account-changed")
+            ? { status: "unauthorized" } : { status: "superseded" };
+        }
+        accessToken = credential.token;
+        scheduleRefresh((credential.expiresAt - Date.now()) / 1000);
+        return commitReady(generation, credential.token, read.user);
+      } catch {
+        return isCurrent() ? markUnavailable(generation, accessToken) : { status: "superseded" };
+      }
+    })().then((result) => {
+      if (refreshFlight === flight) refreshFlight = null;
+      if (externalController === controller) externalController = null;
+      settle(result);
+    });
+    return promise;
+  }
+
   function resolveCurrentSession(): Promise<SessionResolution> {
     const token = accessToken;
     const generation = tokenGeneration;
@@ -1551,10 +1672,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     hasAccessToken: () => accessToken !== null,
 
     setAccessToken(token, expiresIn) {
+      if (sessionSource) throw unsupportedExternalOperation("setAccessToken");
       startExplicitToken(token, expiresIn);
     },
 
     clearAccessToken() {
+      if (sessionSource) externalController?.abort();
       supersedeExplicitAdoption();
       if (clearCurrentGeneration(tokenGeneration)) {
         const clearedGeneration = tokenGeneration;
@@ -1586,6 +1709,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     },
 
     resolveSession(options: ResolveSessionOptions = {}) {
+      if (sessionSource) return waitForCaller(runExternalSession(options.refresh === true), options.signal);
       const shouldRefresh =
         options.refresh === true ||
         (options.refresh === undefined && accessToken === null);
@@ -1608,6 +1732,7 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     },
 
     revalidateSession(options: RevalidateSessionOptions = {}) {
+      if (sessionSource) return waitForCaller(runExternalSession(true), options.signal);
       const operation = explicitAdoptionFlight
         ? explicitAdoptionFlight.promise
         : refreshFlight
@@ -1624,6 +1749,12 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     },
 
     async devLogin(email: string): Promise<DevLoginResult> {
+      if (sessionSource) return {
+        ok: false,
+        reason: "unexpected",
+        status: 400,
+        message: unsupportedExternalOperation("devLogin").message,
+      };
       let response: Response;
       try {
         response = await fetchAuthRequest(
@@ -1759,5 +1890,51 @@ export function createAuthStore(config: AuthStoreConfig): ConcreteAuthStore {
     },
   };
 
+  if (sessionSource) {
+    bindExternalSession(store, {
+      source: sessionSource,
+      getRevision() {
+        if (externalDisposed) return null;
+        const snapshot = syncExternalSnapshot();
+        return snapshot.status === "ready" && externalEndedRevision !== snapshot.revision
+          ? snapshot.revision : null;
+      },
+      async endSession<T>(operation: () => Promise<T>): Promise<T> {
+        if (externalDisposed) throw unsupportedExternalOperation("Session management after disposal");
+        const revision = syncExternalSnapshot().revision;
+        const generation = tokenGeneration;
+        externalEndedRevision = revision;
+        let pending: Promise<T>;
+        try {
+          // The provider captures its target before any local observer can switch it.
+          pending = operation();
+        } finally {
+          if (syncExternalSnapshot().revision === revision && tokenGeneration === generation) {
+            store.clearAccessToken();
+          }
+        }
+        return pending;
+      },
+    });
+    const changed = () => {
+      if (externalDisposed) return;
+      const snapshot = syncExternalSnapshot();
+      if (snapshot.status === "ready") void runExternalSession(false);
+    };
+    let unsubscribe = () => {};
+    const dispose = () => {
+      externalDisposed = true;
+      unsubscribe();
+      externalController?.abort();
+      clearCurrentGeneration(tokenGeneration);
+    };
+    if (lifecycleSignal?.aborted) dispose();
+    else {
+      syncExternalSnapshot();
+      unsubscribe = sessionSource.subscribe(changed);
+      lifecycleSignal?.addEventListener("abort", dispose, { once: true });
+      if (lifecycleSignal?.aborted) dispose();
+    }
+  }
   return store;
 }
