@@ -1,6 +1,6 @@
 # External sessions (CEL-2649)
 
-Version 0.22.0 is an unpublished release candidate. No dependency, provider configuration, deployment, or consumer default changes are included. Omitting `sessionSource` retains the existing OTP and refresh-cookie behavior.
+External sessions shipped in version 0.22.0. For Clerk, use the published 0.23.1 release and its [adoption and rollback guide](clerk-session-source.md#released-versions-and-adoption). Package installation does not change provider configuration, deployment, or consumer defaults. Omitting `sessionSource` retains the existing OTP and refresh-cookie behavior.
 
 ```ts
 import { createAuthStore, type ExternalSessionSource } from "@cellarnode/auth";
