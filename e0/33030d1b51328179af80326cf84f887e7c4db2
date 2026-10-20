@@ -1,0 +1,19 @@
+docs/clerk-session-source.md
+  s_e08c290cfdeacc::t_fbc9837d6381b3 68-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e033030d1b51328179af80326cf84f887e7c4db2",
+  "prompts": {},
+  "sessions": {
+    "s_e08c290cfdeacc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14e81-48ad-7c13-ab0a-c14241945059",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
