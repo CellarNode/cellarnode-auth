@@ -6,9 +6,17 @@ IDs are used only to detect provider-session changes. The local identity and
 permissions always come from the store's validated `/auth/me` response.
 
 The adapter starts in `loading`. It becomes `signed-out` only after a ready
-Clerk client reports no active user or session. It becomes `ready` only when
-Clerk reports a ready client, an active session, a matching user, and an active
-organisation. Missing or pending resources remain `loading`.
+Clerk client reports no active user or session. It becomes `ready` when Clerk
+reports a ready client, an active session, and a matching user. An active user
+without an organisation is still authenticated and can resolve through the
+local identity mapping; the store's `/auth/me` response remains the source of
+local identity and permissions. Without an organisation, no organisation roles
+or features are implied. Missing or pending resources, or a session whose user
+does not match the active user, remain `loading`.
+
+Changes between no organisation and a selected organisation advance the
+provider revision. Credentials fetched for the previous state are discarded,
+so workspace-specific authorization must be resolved again from `/auth/me`.
 
 Create the source and store before mounting React, then mount the lifecycle
 bridge under the app's `ClerkProvider`:
