@@ -1,0 +1,38 @@
+CHANGELOG.md
+  s_e08c290cfdeacc::t_42f4d6d3370f49 5-9
+__tests__/clerk-session-source.test.tsx
+  s_e08c290cfdeacc::t_8286e6b2e995f7 62,77-80,96-104,107-108,110-119
+  s_e08c290cfdeacc::t_6138c25f4bf857 105-106,109
+docs/clerk-session-source.md
+  s_e08c290cfdeacc::t_8286e6b2e995f7 9-19
+package.json
+  s_e08c290cfdeacc::t_42f4d6d3370f49 3
+src/clerk/source.ts
+  s_e08c290cfdeacc::t_8286e6b2e995f7 85
+package-lock.json
+  s_14af60ac705699::t_5a9236650f968b 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9cd9975b29d5007f58a1155b26e59a66c9027cf0",
+  "prompts": {},
+  "sessions": {
+    "s_14af60ac705699": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14e7d-640e-75e3-b6d3-f00509d89a7a",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    },
+    "s_e08c290cfdeacc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14e81-48ad-7c13-ab0a-c14241945059",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "mjnong <marcusnagy@icloud.com>"
+    }
+  }
+}
